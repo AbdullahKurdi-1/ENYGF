@@ -1,0 +1,15 @@
+#!/bin/sh
+cd "${0%/*}" || exit 1
+
+set -e
+
+cp -f ../geometry/rod.stl constant/triSurface/rod.stl 2>/dev/null || {
+    mkdir -p constant/triSurface
+    cp -f ../geometry/rod.stl constant/triSurface/rod.stl
+}
+
+blockMesh
+surfaceCheck constant/triSurface/rod.stl
+snappyHexMesh -overwrite
+checkMesh
+simpleFoam

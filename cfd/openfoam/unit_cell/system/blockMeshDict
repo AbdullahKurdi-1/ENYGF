@@ -1,0 +1,80 @@
+/*--------------------------------*- C++ -*----------------------------*\
+  Background box for the snappyHexMesh unit-cell case.
+  Box side = pitch P = 0.155 m (half-pitch a = 0.0775 m), centered at the
+  rod axis. z-extent = 0.01 m, periodic (cyclic) streamwise direction.
+\*-----------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      blockMeshDict;
+}
+
+scale   1;
+
+a       0.0775;   // half-pitch, m
+Lz      0.01;     // streamwise slab thickness, m
+nx      40;
+ny      40;
+
+vertices
+(
+    (-$a -$a 0)
+    ( $a -$a 0)
+    ( $a  $a 0)
+    (-$a  $a 0)
+    (-$a -$a $Lz)
+    ( $a -$a $Lz)
+    ( $a  $a $Lz)
+    (-$a  $a $Lz)
+);
+
+blocks
+(
+    hex (0 1 2 3 4 5 6 7) ($nx $ny 1) simpleGrading (1 1 1)
+);
+
+edges
+(
+);
+
+boundary
+(
+    xMin
+    {
+        type symmetryPlane;
+        faces ((0 4 7 3));
+    }
+    xMax
+    {
+        type symmetryPlane;
+        faces ((2 6 5 1));
+    }
+    yMin
+    {
+        type symmetryPlane;
+        faces ((0 1 5 4));
+    }
+    yMax
+    {
+        type symmetryPlane;
+        faces ((3 7 6 2));
+    }
+    front
+    {
+        type cyclic;
+        neighbourPatch back;
+        faces ((0 3 2 1));
+    }
+    back
+    {
+        type cyclic;
+        neighbourPatch front;
+        faces ((4 5 6 7));
+    }
+);
+
+mergePatchPairs
+(
+);

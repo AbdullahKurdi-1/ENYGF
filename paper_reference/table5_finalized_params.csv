@@ -1,0 +1,10 @@
+parameter,value,unit
+rod_diameter_D,0.14,m
+pitch_P,0.155,m
+pitch_to_diameter_ratio,1.107,-
+reynolds_number,9800,-
+mass_flow_rate,0.043,kg/s
+axial_length,2.285,m
+prandtl_numbers,"0.025;1;2;7",-
+wall_temperature_case,295,K
+wall_heat_flux_case,0.12,W/m2

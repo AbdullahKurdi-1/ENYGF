@@ -1,0 +1,24 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      fvModels;
+}
+
+// Drives the periodic (cyclic front/back) domain to the target bulk
+// velocity instead of using an inlet/outlet. Ubar_z chosen to match
+// Re = 9800 with air (nu=1.5e-5 m2/s) at the unit-cell hydraulic diameter
+// Dh=0.0785 m: U = Re*nu/Dh = 9800*1.5e-5/0.0785 ~= 1.872 m/s.
+//
+// If your OpenFOAM version rejects this exact syntax, check
+// $FOAM_TUTORIALS for a periodic/channel-flow case using
+// meanVelocityForce and match its fvModels (or fvOptions, on
+// ESI/OpenCFD builds) entry syntax exactly - it varies a bit by version.
+momentumSource
+{
+    type            meanVelocityForce;
+    selectionMode   all;
+    fields          (U);
+    Ubar            (0 0 1.872);
+}

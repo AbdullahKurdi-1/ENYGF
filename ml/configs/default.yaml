@@ -1,0 +1,46 @@
+# Geometry (must match cfd/openfoam/unit_cell + paper_reference/table5_finalized_params.csv)
+geometry:
+  rod_radius_m: 0.07
+  half_pitch_m: 0.0775
+  line1_start: [0.07, 0.0]
+  line1_end: [0.0775, 0.0]
+  line2_start: [0.0494975, 0.0494975]
+  line2_end: [0.0775, 0.0775]
+
+# Parameter ranges the network is conditioned on (from paper_reference tables)
+parameter_ranges:
+  re_min: 1531     # Table 2, R32
+  re_max: 49000    # Table 2, R1
+  re_reference: 9800   # Table 5 finalized case (R5)
+  pr_values: [0.025, 1, 2, 7]
+  turbulent_prandtl: 0.9
+
+model:
+  fourier_features: 32
+  fourier_scale: 12.0
+  momentum_hidden: [128, 128, 128, 128]
+  thermal_hidden: [128, 128, 128]
+  nut_scale: 0.05   # m2/s, upper-order-of-magnitude cap via softplus
+
+training:
+  epochs: 5000
+  lr: 1.0e-3
+  lr_decay_step: 1000
+  lr_decay_gamma: 0.7
+  n_collocation: 4096
+  batch_data: 512
+  loss_weights:
+    data: 1.0
+    physics_continuity: 1.0
+    physics_momentum: 1.0
+    physics_energy: 1.0
+    bc_wall: 5.0
+    bc_symmetry: 1.0
+  seed: 0
+
+paths:
+  digitized_data: ../digitized_data
+  table2: ../paper_reference/table2_reynolds_scaling.csv
+  table4: ../paper_reference/table4_thermal_cases.csv
+  checkpoint: outputs/pinn_checkpoint.pt
+  plots_dir: outputs/plots
