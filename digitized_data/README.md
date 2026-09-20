@@ -33,3 +33,12 @@ If you'd rather not hand-digitize every curve, digitize just 2-3
 representative cases per figure (e.g. R1, R5, R32 for the Re sweep; Pr=1 and
 Pr=7 for the thermal sweep) — the ML pipeline works with partial coverage,
 it just validates less densely.
+
+## Why there's no `nut_*_by_Re.csv` here
+
+The paper never reports eddy-viscosity directly — there's nothing to
+digitize for it. `nut` only ever comes from your own OpenFOAM run
+(`cfd/openfoam/extract_profiles.py` writes `cfd_generated/nut_line1.csv`),
+because it's what identifies the PINN's own learned eddy-viscosity field —
+see the conversation in the project history for why that's needed at all,
+not just nice-to-have.

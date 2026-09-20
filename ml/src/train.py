@@ -96,6 +96,15 @@ def main(cfg_path):
             x, y, re = inp[:, 0:1], inp[:, 1:2], inp[:, 2:3]
             u, v, p, nut, k_pred = model.momentum(torch.cat([x, y], dim=-1), re.squeeze(-1))
             data_loss = data_loss + torch.mean((k_pred - tgt) ** 2)
+        if "nut" in data_tensors:
+            # OpenFOAM's own k-omega SST eddy-viscosity, extracted by
+            # extract_profiles.py - this is what actually identifies the
+            # PINN's own nut output, rather than leaving it constrained only
+            # indirectly through the momentum residual.
+            inp, tgt = data_tensors["nut"]
+            x, y, re = inp[:, 0:1], inp[:, 1:2], inp[:, 2:3]
+            u, v, p, nut_pred, k_pred = model.momentum(torch.cat([x, y], dim=-1), re.squeeze(-1))
+            data_loss = data_loss + torch.mean((nut_pred - tgt) ** 2)
         if "theta" in data_tensors:
             inp, tgt = data_tensors["theta"]
             x, y, re, pr, bc = inp[:, 0:1], inp[:, 1:2], inp[:, 2:3], inp[:, 3:4], inp[:, 4:5]

@@ -28,7 +28,12 @@ def predict(model, samples, device):
         u, v, p, nut, k = model.momentum(torch.cat([x, y], dim=-1), re)
         theta = model.thermal(torch.cat([x, y], dim=-1), re, pr, bc, u, v)
     u_mag = torch.sqrt(u**2 + v**2 + 1e-12)
-    return {"u_mag": u_mag.squeeze(-1), "k": k.squeeze(-1), "theta": theta.squeeze(-1)}
+    return {
+        "u_mag": u_mag.squeeze(-1),
+        "k": k.squeeze(-1),
+        "nut": nut.squeeze(-1),
+        "theta": theta.squeeze(-1),
+    }
 
 
 def main(cfg_path):

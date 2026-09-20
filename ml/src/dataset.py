@@ -18,6 +18,7 @@ import pandas as pd
 FILE_KIND_PATTERNS = {
     "velocity_line1": re.compile(r"velocity_line1"),
     "tke_line1": re.compile(r"tke_line1"),
+    "nut_line1": re.compile(r"nut_line1"),
     "temperature_line1_constT": re.compile(r"temperature_line1_constT"),
     "temperature_line2_constT": re.compile(r"temperature_line2_constT"),
     "temperature_line1_constq": re.compile(r"temperature_line1_constq"),
@@ -94,6 +95,10 @@ def load_profiles(digitized_dir: Path, table2_path: Path, geometry: dict):
         elif kind == "tke_line1":
             line = (geometry["line1_start"], geometry["line1_end"])
             quantity = "k"
+            pr, bc = 1.0, 0
+        elif kind == "nut_line1":
+            line = (geometry["line1_start"], geometry["line1_end"])
+            quantity = "nut"
             pr, bc = 1.0, 0
         else:
             line1 = "line1" in kind

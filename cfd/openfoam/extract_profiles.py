@@ -71,11 +71,18 @@ def write_csv(path: Path, rows):
 
 
 def main(unit_cell_dir: Path, scalar_cases_dir: Path, out_dir: Path):
-    velocity_rows, tke_rows = [], []
+    velocity_rows, tke_rows, nut_rows = [], [], []
     velocity_magnitude(unit_cell_dir, "line1", velocity_rows, "unit_cell")
     scalar_field(unit_cell_dir, "line1", "k", tke_rows, "unit_cell")
+    # nu_t is OpenFOAM's own turbulence-model output (k-omega SST), extracted
+    # here specifically so the PINN's own learned eddy-viscosity has a real
+    # target to match, instead of being constrained only indirectly through
+    # the momentum residual + velocity data (see conversation on why that's
+    # an under-constrained way to identify it).
+    scalar_field(unit_cell_dir, "line1", "nut", nut_rows, "unit_cell")
     write_csv(out_dir / "velocity_line1.csv", velocity_rows)
     write_csv(out_dir / "tke_line1.csv", tke_rows)
+    write_csv(out_dir / "nut_line1.csv", nut_rows)
 
     if scalar_cases_dir.exists():
         for case_dir in sorted(scalar_cases_dir.iterdir()):
