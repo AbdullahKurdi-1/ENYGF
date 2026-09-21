@@ -24,6 +24,36 @@ bulk velocity — this reproduces the paper's own periodic-BC philosophy
 cross-section faces are `symmetryPlane` (this is what makes it an *infinite
 array* unit cell rather than a 6-rod bounded bundle).
 
+## What this case can and cannot validate against the paper
+
+**Cannot reproduce, structurally, not just approximately:** the gap vortex
+street / axial flow pulsations that are the paper's central subject. Two
+independent reasons, not one:
+
+1. `simpleFoam` is steady-state — it converges to a time-averaged mean
+   field. There is no time axis for an oscillation to exist on.
+2. The gap vortex street is an *antisymmetric* oscillation between adjacent
+   rod gaps. A `symmetryPlane` boundary mathematically enforces mirror
+   symmetry across itself, which suppresses exactly that mode - regardless
+   of solver. This isn't a guess: the paper itself (Section 3.1, citing
+   Cardoso de Souza et al. 2015) reports that reduced-domain
+   simplifications like this one caused "unwanted numerical errors" for
+   anything beyond basic mean-flow topology, which is why the paper used
+   its full wall-bounded domain instead.
+
+Reproducing the pulsation itself would need a real rebuild: a small
+periodic rod cluster (e.g. 2x2, cyclic in both cross-section directions
+instead of symmetryPlane) run with `pimpleFoam` (unsteady URANS) instead of
+`simpleFoam`. That's a materially bigger mesh and a transient run, not a
+tweak to this case - out of scope here on purpose (see project decision
+log / conversation history for the tradeoff discussion).
+
+**Can validate:** mean-flow trends only - relative velocity/TKE/temperature
+profile shapes, and how they order across the Reynolds and Prandtl sweeps.
+State the claim at this scope in any write-up ("validates mean-flow trends
+against the paper's published profiles") - not "reproduces the paper's rod
+bundle simulation," which this case cannot do and was never going to.
+
 ## Pipeline
 
 1. `geometry/make_rod_stl.py` — writes `rod.stl`, a cylinder along z

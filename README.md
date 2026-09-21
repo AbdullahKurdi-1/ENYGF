@@ -65,9 +65,17 @@ your CFD), PDE residuals via autograd at random collocation points
 Put these in your write-up rather than letting a reviewer find them first:
 
 - OpenFOAM case models a single-rod **unit cell** (infinite square array via
-  symmetryPlane BCs), not the paper's finite 6-rod, wall-bounded domain —
-  the paper's own dimensioned domain drawing (Figs. 1-3) isn't
-  reconstructable from extracted PDF text alone. See `cfd/openfoam/README.md`.
+  symmetryPlane BCs) run **steady-state**, not the paper's finite 6-rod,
+  wall-bounded, unsteady domain. This isn't just lower fidelity - it
+  structurally cannot reproduce the paper's central subject (the gap vortex
+  street / axial flow pulsations): a steady solver has no time axis for an
+  oscillation, and a symmetryPlane BC enforces the mirror symmetry that
+  antisymmetric gap oscillations violate. State the validation claim as
+  **mean-flow trends only** (profile shapes and their ordering across Re/Pr),
+  never as reproducing the paper's simulation. See `cfd/openfoam/README.md`
+  for the full reasoning and what a genuine pulsation-capable rebuild would
+  require (periodic multi-rod cluster + unsteady `pimpleFoam`) if that's
+  ever wanted as a stretch goal.
 - Turbulence closure is Boussinesq/eddy-viscosity inside the PINN, not a
   transported k-omega model — `k` is predicted but is a data-fit output
   only, with no PDE residual of its own.
