@@ -1,8 +1,20 @@
-# Reference: Shams & Kwiatkowski (2018), Annals of Nuclear Energy 121, 146-161
+# Two reference papers, same research program
 
-"Towards the Direct Numerical Simulation of a closely-spaced bare rod bundle"
+1. Shams & Kwiatkowski (2018), *Annals of Nuclear Energy* 121, 146-161 —
+   "Towards the Direct Numerical Simulation of a closely-spaced bare rod
+   bundle." The calibration study. Covered below in this file.
+2. Mathur, Kwiatkowski, Potempski & Komen (2023), *Int. J. Heat and Mass
+   Transfer* 211, 124226 — "Direct numerical simulation of flow and heat
+   transport in a closely-spaced bare rod bundle." The actual DNS the 2018
+   paper was calibrating toward, run 5 years later. Covered in
+   `dns_2023_reference.md` in this folder — **read that one first**, its
+   published figures are the better validation target (real resolved
+   turbulence statistics, not URANS).
 
-## What this paper actually is
+Same geometry, same Re=9800, same NRG/NCBJ team. Reynolds-number-scaling
+case-naming context below (`R1`...`R32`) is from the 2018 paper only.
+
+## What the 2018 paper actually is
 
 A URANS/RANS calibration study that designs (but does not itself run) a DNS of a
 closely-spaced bare rod bundle. There is no released field dataset (no exported

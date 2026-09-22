@@ -1,0 +1,11 @@
+parameter,value,unit
+hydraulic_diameter_Dh,0.0712,m
+reynolds_number,9800,-
+friction_reynolds_number_Re_tau,624,-
+friction_velocity_u_tau,0.0637,m/s
+prandtl_numbers_simulated,"0.025;1.0;2.0",-
+pulsation_frequency,3.7,Hz
+strouhal_number_St,0.52,-
+strouhal_number_St_tau_inv,0.12,-
+grid_points,625900000,-
+processors_used,9984,-
