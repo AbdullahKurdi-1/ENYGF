@@ -38,6 +38,7 @@ python3 extract_profiles.py          # -> digitized_data/cfd_generated/cfd_profi
 # 3. PINN - either the notebook (recommended: ml/notebooks/pinn_walkthrough.ipynb)
 #    or the same code from the terminal:
 cd ../../ml
+python3 src/compare_cfd_to_papers.py # optional: CFD vs. key values read from both papers
 python3 src/train.py                 # ~6000 epochs, ~30 min on a laptop CPU
 python3 src/evaluate.py              # CFD fit + DNS comparison, plots in ml/outputs/plots/
 ```
