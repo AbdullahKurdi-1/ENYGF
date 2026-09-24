@@ -37,8 +37,8 @@ def data_losses(model, data):
     return losses
 
 
-def main(cfg_path):
-    cfg = yaml.safe_load(Path(cfg_path).read_text())
+def train(cfg):
+    """Train from a config dict; returns the trained model. Also used by the notebook."""
     tr = cfg["training"]
     w = tr["loss_weights"]
     torch.manual_seed(tr["seed"])
@@ -111,7 +111,9 @@ def main(cfg_path):
         sched.step()
 
         row = {"epoch": epoch, "phase": 2 if joint else 1, "total": loss.item()}
-        row.update({k: float(v) for k, v in terms.items()})
+        row.update({k: v.item() for k, v in terms.items()})
+        with torch.no_grad():
+            row["dpdz"] = model.pressure_gradient(torch.tensor([[float(re_values[0])]], device=device)).item()
         history.append(row)
         if epoch % tr["print_every"] == 0 or epoch == total_epochs - 1:
             parts = "  ".join(f"{k}={v:.3e}" for k, v in row.items() if k not in ("epoch", "phase"))
@@ -134,6 +136,11 @@ def main(cfg_path):
         wr.writeheader()
         wr.writerows(history)
     print(f"saved {ckpt} and {hist_path}")
+    return model
+
+
+def main(cfg_path):
+    return train(yaml.safe_load(Path(cfg_path).read_text()))
 
 
 if __name__ == "__main__":

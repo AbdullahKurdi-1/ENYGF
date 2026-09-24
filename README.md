@@ -35,9 +35,10 @@ python3 extract_profiles.py          # -> digitized_data/cfd_generated/cfd_profi
 
 # 2. Digitize DNS figures (optional but recommended) - digitized_data/README.md
 
-# 3. PINN
+# 3. PINN - either the notebook (recommended: ml/notebooks/pinn_walkthrough.ipynb)
+#    or the same code from the terminal:
 cd ../../ml
-python3 src/train.py                 # ~6000 epochs; check the printed loss terms
+python3 src/train.py                 # ~6000 epochs, ~30 min on a laptop CPU
 python3 src/evaluate.py              # CFD fit + DNS comparison, plots in ml/outputs/plots/
 ```
 

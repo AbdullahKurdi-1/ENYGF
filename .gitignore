@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .venv/
 .ipynb_checkpoints/
+.pytest_cache/
 
 # OpenFOAM run artifacts (numeric time dirs other than the tracked 0/)
 cfd/openfoam/unit_cell/constant/polyMesh/

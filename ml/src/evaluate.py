@@ -15,8 +15,6 @@ import argparse
 import math
 from pathlib import Path
 
-import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -260,8 +258,8 @@ def compare_fig12a(model, digit, re, dh_dns, device, plots):
     return out
 
 
-def main(cfg_path):
-    cfg = yaml.safe_load(Path(cfg_path).read_text())
+def evaluate(cfg):
+    """Evaluate from a config dict; returns (cfd_fit, nusselt, dns_figures) tables. Also used by the notebook."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_model(cfg, device)
     plots = Path(cfg["paths"]["plots_dir"])
@@ -300,6 +298,11 @@ def main(cfg_path):
     else:
         print("\nNo digitized DNS figures found yet - see digitized_data/README.md.")
     print(f"\nPlots written to {plots}/")
+    return (fit if df is not None and not df.empty else None), nu_table, pd.DataFrame(results)
+
+
+def main(cfg_path):
+    return evaluate(yaml.safe_load(Path(cfg_path).read_text()))
 
 
 if __name__ == "__main__":
