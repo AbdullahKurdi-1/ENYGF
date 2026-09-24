@@ -1,109 +1,206 @@
-"""Reformat OpenFOAM `sample` .xy output into the same CSV schema used for
-the paper's digitized figures (digitized_data/), so ml/src/dataset.py can
-load CFD-generated and hand-digitized profiles identically.
+"""Collect the sampled line profiles from the flow and thermal cases into
+one tidy CSV for the PINN: digitized_data/cfd_generated/cfd_profiles.csv
 
-Looks for files named line1_<field>.xy / line2_<field>.xy anywhere under
-each case directory (robust to OpenFOAM version differences in where
-`sample`/postProcess write their output).
+Columns: case_id, line, s, xi, x, y, quantity, value, Re, Pr, bc
+  quantity is one of: w (axial velocity), k, nut, T
+  s  = distance along the sampled line [m]
+  xi = distance along the 2023 DNS unit-cell-boundary path [m] (seg1-3 only)
+
+Iso-flux temperatures are only defined up to a constant (Neumann wall BC +
+balanced sink), so they are shifted to T = 0 at the rod surface in the narrow
+gap (first point of seg1). The PINN uses the same gauge.
+
+Also reports how much each profile changed between the last two write times,
+as a convergence check.
 
 Usage:
-    python3 extract_profiles.py --unit-cell ../unit_cell \
-        --scalar-cases cases --out ../../digitized_data/cfd_generated
+    python3 extract_profiles.py
 """
 import argparse
 import csv
+import math
+import re
 from pathlib import Path
 
+from case_geometry import NU, PR_VALUES, RE, SAMPLE_LINES, U_BULK, DH_CELL, field_name
+
 HERE = Path(__file__).resolve().parent
+BCS = ["isoT", "isoFlux"]
+VECTOR_FIELDS = {"U"}
 
 
-def read_xy(path: Path, n_value_cols: int):
-    rows = []
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
+def time_dirs(func_dir: Path):
+    out = []
+    for p in func_dir.iterdir():
+        try:
+            out.append((float(p.name), p))
+        except ValueError:
+            pass
+    return [p for _, p in sorted(out)]
+
+
+def expand(fields):
+    cols = []
+    for f in fields:
+        cols += [f"{f}_x", f"{f}_y", f"{f}_z"] if f in VECTOR_FIELDS else [f]
+    return cols
+
+
+def split_field_names(text, known_fields):
+    """'T_Pr1_isoT_k' -> ['T_Pr1_isoT', 'k']: field names may contain '_',
+    so match the requested names greedily instead of splitting on '_'."""
+    if not text:
+        return list(known_fields)
+    out, pos = [], 0
+    by_length = sorted(known_fields, key=len, reverse=True)
+    while pos < len(text):
+        for f in by_length:
+            end = pos + len(f)
+            if text.startswith(f, pos) and (end == len(text) or text[end] == "_"):
+                out.append(f)
+                pos = end + 1
+                break
+        else:
+            raise SystemExit(f"Can't recognise field names in '{text}' (expected some of {known_fields}).")
+    return out
+
+
+def read_set_files(time_dir: Path, requested_fields):
+    """Return {set_name: {column_name: [values]}} for every raw file.
+
+    Handles both layouts OpenFOAM has used: one file per set with a '#'
+    header naming the columns, or one file per set and field group whose
+    name encodes the fields (e.g. seg1_k_nut.xy, seg1_U.xy).
+    """
+    sets = {}
+    for f in sorted(time_dir.iterdir()):
+        if not f.is_file():
             continue
-        parts = line.split()
-        if len(parts) < 1 + n_value_cols:
+        lines = f.read_text().splitlines()
+        header = [ln for ln in lines if ln.lstrip().startswith("#")]
+        rows = [ln.split() for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]
+        if not rows:
             continue
-        distance = float(parts[0])
-        values = [float(v) for v in parts[1 : 1 + n_value_cols]]
-        rows.append((distance, values))
-    return rows
+        stem = f.name.split(".")[0]
+        set_name = stem.split("_")[0]
+        if header:
+            names = header[-1].lstrip("#").split()
+        else:
+            fields = split_field_names(stem[len(set_name) + 1:], requested_fields)
+            names = ["distance"] + expand(fields)
+        if len(names) != len(rows[0]):
+            raise SystemExit(
+                f"Can't map columns in {f}: header/inferred names {names} "
+                f"but rows have {len(rows[0])} values. Paste this message and the "
+                f"first 3 lines of that file to get the parser fixed."
+            )
+        cols = sets.setdefault(set_name, {})
+        for i, n in enumerate(names):
+            cols[n] = [float(r[i]) for r in rows]
+    return sets
 
 
-def normalize_distance(rows):
-    distances = [d for d, _ in rows]
-    d_min, d_max = min(distances), max(distances)
-    span = (d_max - d_min) or 1.0
-    return [((d - d_min) / span, v) for d, v in rows]
+def column(cols, *candidates):
+    norm = {re.sub(r"[^a-z0-9]", "", k.lower()): k for k in cols}
+    for c in candidates:
+        key = norm.get(re.sub(r"[^a-z0-9]", "", c.lower()))
+        if key is not None:
+            return cols[key]
+    return None
 
 
-def find_first(case_dir: Path, pattern: str):
-    matches = sorted(case_dir.rglob(pattern))
-    return matches[-1] if matches else None  # rglob is unsorted-by-time; last is fine as a pick, verify manually if multiple times exist
+def point_on_line(line, s):
+    (x0, y0), (x1, y1), _ = SAMPLE_LINES[line]
+    L = math.hypot(x1 - x0, y1 - y0)
+    return x0 + (x1 - x0) * s / L, y0 + (y1 - y0) * s / L
 
 
-def velocity_magnitude(case_dir: Path, line_name: str, out_rows: list, case_id: str):
-    f = find_first(case_dir, f"{line_name}_U.xy")
-    if f is None:
+def convergence_report(func_dir: Path, requested_fields, label):
+    ts = time_dirs(func_dir)
+    if len(ts) < 2:
+        print(f"[{label}] only one write time - can't check convergence yet.")
         return
-    for y_star, (ux, uy, uz) in normalize_distance(read_xy(f, 3)):
-        mag = (ux**2 + uy**2 + uz**2) ** 0.5
-        out_rows.append((case_id, y_star, mag))
-
-
-def scalar_field(case_dir: Path, line_name: str, field: str, out_rows: list, case_id: str):
-    f = find_first(case_dir, f"{line_name}_{field}.xy")
-    if f is None:
-        return
-    for y_star, (val,) in normalize_distance(read_xy(f, 1)):
-        out_rows.append((case_id, y_star, val))
-
-
-def write_csv(path: Path, rows):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["case_id", "x", "y"])
-        writer.writerows(rows)
-    print(f"wrote {len(rows)} rows to {path}")
-
-
-def main(unit_cell_dir: Path, scalar_cases_dir: Path, out_dir: Path):
-    velocity_rows, tke_rows, nut_rows = [], [], []
-    velocity_magnitude(unit_cell_dir, "line1", velocity_rows, "unit_cell")
-    scalar_field(unit_cell_dir, "line1", "k", tke_rows, "unit_cell")
-    # nu_t is OpenFOAM's own turbulence-model output (k-omega SST), extracted
-    # here specifically so the PINN's own learned eddy-viscosity has a real
-    # target to match, instead of being constrained only indirectly through
-    # the momentum residual + velocity data (see conversation on why that's
-    # an under-constrained way to identify it).
-    scalar_field(unit_cell_dir, "line1", "nut", nut_rows, "unit_cell")
-    write_csv(out_dir / "velocity_line1.csv", velocity_rows)
-    write_csv(out_dir / "tke_line1.csv", tke_rows)
-    write_csv(out_dir / "nut_line1.csv", nut_rows)
-
-    if scalar_cases_dir.exists():
-        for case_dir in sorted(scalar_cases_dir.iterdir()):
-            if not case_dir.is_dir():
+    a = read_set_files(ts[-2], requested_fields)
+    b = read_set_files(ts[-1], requested_fields)
+    worst = 0.0
+    for s in b:
+        for col, vb in b[s].items():
+            if col.lower() == "distance" or col not in a.get(s, {}):
                 continue
-            case_id = case_dir.name
-            for line_name, out_name in (("line1", "line1"), ("line2", "line2")):
-                rows = []
-                scalar_field(case_dir, line_name, "T", rows, case_id)
-                if rows:
-                    write_csv(
-                        out_dir / f"temperature_{out_name}_{case_id}.csv", rows
-                    )
+            va = a[s][col]
+            scale = max(max(abs(v) for v in vb), 1e-30)
+            worst = max(worst, max(abs(x - y) for x, y in zip(va, vb)) / scale)
+    flag = "OK" if worst < 0.01 else "NOT CONVERGED - run longer"
+    print(f"[{label}] max relative change between t={ts[-2].name} and t={ts[-1].name}: {worst:.2e}  {flag}")
+
+
+def main(unit_cell: Path, thermal: Path, out_csv: Path):
+    rows = []
+
+    flow_dir = unit_cell / "postProcessing" / "sampleFlow"
+    if not flow_dir.exists():
+        raise SystemExit(f"{flow_dir} not found - has unit_cell/Allrun finished?")
+    flow_fields = ["U", "k", "nut"]
+    convergence_report(flow_dir, flow_fields, "flow")
+    flow_sets = read_set_files(time_dirs(flow_dir)[-1], flow_fields)
+    print("flow columns found:", {s: list(c) for s, c in flow_sets.items()})
+    for line, cols in flow_sets.items():
+        if line not in SAMPLE_LINES:
+            continue
+        xi0 = SAMPLE_LINES[line][2]
+        dist = column(cols, "distance")
+        w = column(cols, "U_z", "Uz", "U2")
+        for qname, vals in (("w", w), ("k", column(cols, "k")), ("nut", column(cols, "nut"))):
+            if vals is None:
+                print(f"WARNING: no '{qname}' column in flow set {line}")
+                continue
+            for s, v in zip(dist, vals):
+                x, y = point_on_line(line, s)
+                xi = "" if xi0 is None else xi0 + s
+                rows.append(("flow", line, s, xi, x, y, qname, v, RE, "", ""))
+
+    thermal_dir = thermal / "postProcessing" / "sampleThermal"
+    if thermal_dir.exists():
+        t_fields = [field_name(pr, bc) for pr in PR_VALUES for bc in BCS]
+        convergence_report(thermal_dir, t_fields, "thermal")
+        t_sets = read_set_files(time_dirs(thermal_dir)[-1], t_fields)
+        for pr in PR_VALUES:
+            for bc in BCS:
+                f = field_name(pr, bc)
+                gauge = 0.0
+                if bc == "isoFlux":
+                    seg1 = column(t_sets.get("seg1", {}), f)
+                    gauge = seg1[0] if seg1 else 0.0
+                for line, cols in t_sets.items():
+                    if line not in SAMPLE_LINES:
+                        continue
+                    vals = column(cols, f)
+                    if vals is None:
+                        print(f"WARNING: no '{f}' column in thermal set {line}")
+                        continue
+                    xi0 = SAMPLE_LINES[line][2]
+                    for s, v in zip(column(cols, "distance"), vals):
+                        x, y = point_on_line(line, s)
+                        xi = "" if xi0 is None else xi0 + s
+                        rows.append((f[2:], line, s, xi, x, y, "T", v - gauge, RE, pr, bc))
+    else:
+        print(f"No thermal results at {thermal_dir} (run generate_thermal_case.py + thermal/Allrun) - flow only.")
+
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_csv, "w", newline="") as fh:
+        wr = csv.writer(fh)
+        wr.writerow(["case_id", "line", "s", "xi", "x", "y", "quantity", "value", "Re", "Pr", "bc"])
+        wr.writerows(rows)
+    print(f"wrote {len(rows)} rows to {out_csv}")
+    print(f"(case constants: U_b={U_BULK}, nu={NU:.4e}, Dh_cell={DH_CELL:.6f})")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--unit-cell", default=str(HERE / "unit_cell"))
-    parser.add_argument("--scalar-cases", default=str(HERE / "cases"))
+    parser.add_argument("--thermal", default=str(HERE / "thermal"))
     parser.add_argument(
-        "--out", default=str(HERE.parent.parent / "digitized_data" / "cfd_generated")
+        "--out", default=str(HERE.parent.parent / "digitized_data" / "cfd_generated" / "cfd_profiles.csv")
     )
     args = parser.parse_args()
-    main(Path(args.unit_cell), Path(args.scalar_cases), Path(args.out))
+    main(Path(args.unit_cell), Path(args.thermal), Path(args.out))

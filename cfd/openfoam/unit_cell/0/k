@@ -1,6 +1,5 @@
 FoamFile
 {
-    version     2.0;
     format      ascii;
     class       volScalarField;
     object      k;
@@ -8,38 +7,18 @@ FoamFile
 
 dimensions      [0 2 -2 0 0 0 0];
 
-// I ~= 0.16*Re^(-1/8) ~= 5%, k = 1.5*(I*Ubulk)^2, at Ubulk=1.872 m/s.
-internalField   uniform 0.0135;
+// 5% turbulence intensity at U_b = 1: k = 1.5*(0.05*1)^2
+internalField   uniform 0.00375;
 
 boundaryField
 {
+    #includeEtc "caseDicts/setConstraintTypes"
+
     rod
     {
         type            kqRWallFunction;
-        value           uniform 0.0135;
-    }
-    xMin
-    {
-        type            symmetryPlane;
-    }
-    xMax
-    {
-        type            symmetryPlane;
-    }
-    yMin
-    {
-        type            symmetryPlane;
-    }
-    yMax
-    {
-        type            symmetryPlane;
-    }
-    front
-    {
-        type            cyclic;
-    }
-    back
-    {
-        type            cyclic;
+        value           $internalField;
     }
 }
+
+// ************************************************************************* //

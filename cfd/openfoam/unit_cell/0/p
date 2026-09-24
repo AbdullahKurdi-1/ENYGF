@@ -1,6 +1,5 @@
 FoamFile
 {
-    version     2.0;
     format      ascii;
     class       volScalarField;
     object      p;
@@ -12,32 +11,12 @@ internalField   uniform 0;
 
 boundaryField
 {
+    #includeEtc "caseDicts/setConstraintTypes"
+
     rod
     {
-        type            zeroGradient;
-    }
-    xMin
-    {
-        type            symmetryPlane;
-    }
-    xMax
-    {
-        type            symmetryPlane;
-    }
-    yMin
-    {
-        type            symmetryPlane;
-    }
-    yMax
-    {
-        type            symmetryPlane;
-    }
-    front
-    {
-        type            cyclic;
-    }
-    back
-    {
-        type            cyclic;
+        type            fixedFluxExtrapolatedPressure;
     }
 }
+
+// ************************************************************************* //

@@ -1,46 +1,60 @@
-# Geometry (must match cfd/openfoam/unit_cell + paper_reference/table5_finalized_params.csv)
+# Must match cfd/openfoam/case_geometry.py (the CFD case constants).
 geometry:
-  rod_radius_m: 0.07
-  half_pitch_m: 0.0775
-  line1_start: [0.07, 0.0]
-  line1_end: [0.0775, 0.0]
-  line2_start: [0.0494975, 0.0494975]
-  line2_end: [0.0775, 0.0775]
+  rod_radius: 0.07          # m
+  half_pitch: 0.0775        # m, quarter unit cell spans 0..half_pitch in x and y
+  dh_cell: 0.078497         # m, quarter unit cell hydraulic diameter
+  dh_dns: 0.0712            # m, 2023 DNS domain hydraulic diameter (for its xi/Dh axis)
 
-# Parameter ranges the network is conditioned on (from paper_reference tables)
-parameter_ranges:
-  re_min: 1531     # Table 2, R32
-  re_max: 49000    # Table 2, R1
-  re_reference: 9800   # Table 5 finalized case (R5)
-  pr_values: [0.025, 1, 2, 7]
-  turbulent_prandtl: 0.9
+flow:
+  u_bulk: 1.0               # 2023 DNS normalisation, U_b = 1
+  re_values: [9800]         # add values here only if you also ran CFD at those Re
+
+thermal:
+  pr_values: [0.025, 1.0, 2.0, 7.0]
+  pr_turbulent: 0.9
+  wall_heat_flux: 1.0       # iso-flux BC (rho*cp = 1)
+  sink_iso_t: 1.0           # iso-temperature volumetric sink (2023 DNS)
 
 model:
   fourier_features: 32
-  fourier_scale: 12.0
+  fourier_scale: 4.0        # coordinates are normalised to [0, 1] before this
   momentum_hidden: [128, 128, 128, 128]
-  thermal_hidden: [128, 128, 128]
-  nut_scale: 0.05   # m2/s, upper-order-of-magnitude cap via softplus
+  thermal_hidden: [128, 128, 128, 128]
+  wall_layer: 0.002         # m, length scale of the hard no-slip / T=0 wall factor
+  wall_feature_scales: [0.0001, 0.0003, 0.001, 0.003, 0.01]   # m, near-wall input features
+  nut_scale: 0.001          # m2/s
+  k_scale: 0.01             # m2/s2
+  g_scale: 0.2              # m/s2, typical driving pressure gradient 4*u_tau^2/Dh
 
 training:
-  epochs: 5000
+  epochs_momentum: 2000     # phase 1: flow only
+  epochs_joint: 4000        # phase 2: flow + temperature
   lr: 1.0e-3
   lr_decay_step: 1000
   lr_decay_gamma: 0.7
-  n_collocation: 4096
-  batch_data: 512
-  loss_weights:
-    data: 1.0
-    physics_continuity: 1.0
-    physics_momentum: 1.0
-    physics_energy: 1.0
-    bc_wall: 5.0
-    bc_symmetry: 1.0
+  n_collocation: 2048
+  n_boundary: 512
+  print_every: 100
   seed: 0
+  # Divide each loss term by its own running average so terms with very
+  # different magnitudes (PDE residuals vs. data) all get optimised.
+  adaptive_loss_normalisation: true
+  loss_weights:
+    data_w: 1.0
+    data_nut: 1.0
+    data_k: 0.1
+    data_T: 1.0
+    pde_momentum: 1.0
+    pde_energy: 1.0
+    bulk_velocity: 10.0
+    symmetry: 1.0
+    wall_heat_flux: 1.0
+    gauge: 1.0
 
 paths:
-  digitized_data: ../digitized_data
-  table2: ../paper_reference/table2_reynolds_scaling.csv
-  table4: ../paper_reference/table4_thermal_cases.csv
+  cfd_profiles: ../digitized_data/cfd_generated/cfd_profiles.csv
+  digitized_dir: ../digitized_data
+  dns_nusselt: ../paper_reference/table_dns_2023_nusselt.csv
   checkpoint: outputs/pinn_checkpoint.pt
+  loss_history: outputs/loss_history.csv
   plots_dir: outputs/plots

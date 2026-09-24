@@ -1,0 +1,23 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  Drives the streamwise-periodic flow at a fixed bulk velocity instead of
+  using an inlet/outlet - the same periodic approach as the 2018 and 2023
+  papers. Ubar = 1 m/s follows the 2023 DNS normalisation (U_b = 1).
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      fvConstraints;
+}
+
+momentumSource
+{
+    type            meanVelocityForce;
+
+    cellZone        all;
+
+    Ubar            (0 0 1);
+}
+
+// ************************************************************************* //

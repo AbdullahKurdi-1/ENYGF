@@ -1,88 +1,67 @@
-# OpenFOAM unit-cell case (v0 scaffold)
+# OpenFOAM cases (OpenFOAM v13, openfoam.org)
 
-Targets **OpenFOAM.org v11** naming conventions (`constant/momentumTransport`,
-`constant/fvModels`). If you're on an ESI/OpenCFD version instead, rename
-`momentumTransport` -> `turbulenceProperties` and `fvModels` -> the equivalent
-entries in `system/fvOptions`, and adjust the `RAS.model` key to `RASModel`.
-
-This was authored without a local OpenFOAM install to test against (this
-session's sandbox doesn't have OpenFOAM) — treat it as a first-pass scaffold,
-not a validated case. Expect to run `blockMesh`, `surfaceCheck` on the STL,
-`snappyHexMesh`, and `checkMesh`, and to fix whatever those complain about.
-That's a normal part of standing up any new CFD case, not a sign something
-here is fundamentally wrong.
+Built on the syntax of v13's own tutorial `incompressibleFluid/ductSecondaryFlow`
+(periodic duct, symmetry planes, `meanVelocityForce`), which is structurally
+the same problem. Still untested on a real OpenFOAM install from this side -
+expect to paste back an error or two on the first run.
 
 ## What it models
 
-A single square-pitch unit cell around one rod (see
-`../../paper_reference/NOTES.md` for why — the paper's full 6-rod
-wall-bounded domain isn't numerically reconstructable from the extracted PDF
-text alone). Streamwise direction is `z`, made periodic with a `cyclic`
-patch pair and a `meanVelocityForce` momentum source targeting the Re=9800
-bulk velocity — this reproduces the paper's own periodic-BC philosophy
-(Section 3.1) without needing an artificially long domain. The four outer
-cross-section faces are `symmetryPlane` (this is what makes it an *infinite
-array* unit cell rather than a 6-rod bounded bundle).
+The **quarter unit cell** of an infinite square rod array (P/D = 1.107,
+D = 0.14 m): rod at the origin, cell spanning 0..a in x and y (a = P/2),
+symmetry planes on all four sides, one cell thick and periodic in the
+streamwise direction z. This is the same "effective unit cell" the 2023 DNS
+averages its statistics over, and the one its figures are plotted on.
 
-## What this case can and cannot validate against the paper
+Normalisation follows the 2023 DNS: U_b = 1 m/s, rho = 1, rho*cp = 1, so
+Re_h = 9800 fixes nu = Dh/Re_h = 8.0099e-6 m²/s (Dh = 0.078497 m for the
+unit cell).
 
-**Cannot reproduce, structurally, not just approximately:** the gap vortex
-street / axial flow pulsations that are the paper's central subject. Two
-independent reasons, not one:
-
-1. `simpleFoam` is steady-state — it converges to a time-averaged mean
-   field. There is no time axis for an oscillation to exist on.
-2. The gap vortex street is an *antisymmetric* oscillation between adjacent
-   rod gaps. A `symmetryPlane` boundary mathematically enforces mirror
-   symmetry across itself, which suppresses exactly that mode - regardless
-   of solver. This isn't a guess: the paper itself (Section 3.1, citing
-   Cardoso de Souza et al. 2015) reports that reduced-domain
-   simplifications like this one caused "unwanted numerical errors" for
-   anything beyond basic mean-flow topology, which is why the paper used
-   its full wall-bounded domain instead.
-
-Reproducing the pulsation itself would need a real rebuild: a small
-periodic rod cluster (e.g. 2x2, cyclic in both cross-section directions
-instead of symmetryPlane) run with `pimpleFoam` (unsteady URANS) instead of
-`simpleFoam`. That's a materially bigger mesh and a transient run, not a
-tweak to this case - out of scope here on purpose (see project decision
-log / conversation history for the tradeoff discussion).
-
-**Can validate:** mean-flow trends only - relative velocity/TKE/temperature
-profile shapes, and how they order across the Reynolds and Prandtl sweeps.
-State the claim at this scope in any write-up ("validates mean-flow trends
-against the paper's published profiles") - not "reproduces the paper's rod
-bundle simulation," which this case cannot do and was never going to.
+Mesh: structured two-block O-grid from `blockMesh`, 2 x 60 x 40 cells,
+clustered at the rod (first-cell y+ below 1, so near-wall eddy viscosity is ~0).
 
 ## Pipeline
 
-1. `geometry/make_rod_stl.py` — writes `rod.stl`, a cylinder along z
-   representing the solid rod (removed from the fluid domain by
-   snappyHexMesh).
-2. `unit_cell/Allrun` — `blockMesh` (background box) -> `snappyHexMesh`
-   (cuts the rod out, refines near its surface) -> `checkMesh` ->
-   `simpleFoam` (steady RANS, k-omega SST) to convergence.
-3. Once `simpleFoam` converges, run `generate_scalar_cases.py` to spin up
-   the 8 Pr x BC combinations from `paper_reference/table4_thermal_cases.csv`,
-   each reusing the converged `U` field and solving a passive-scalar
-   temperature equation with `scalarTransportFoam` (diffusivity = nu/Pr,
-   matching the paper's own passive-scalar treatment in Section 4.3 — this
-   is valid because momentum is Pr-independent, exactly as the paper states).
-4. `extract_profiles.py` samples Line 1 / Line 2 profiles from each
-   converged case into the same CSV schema as `digitized_data/`, so the ML
-   pipeline in `ml/` can't tell your CFD data from the paper's digitized
-   figures — same loader, same format.
+```bash
+cd cfd/openfoam/unit_cell
+./Allrun                          # blockMesh -> checkMesh -> foamRun (steady RANS, k-omega SST)
+cd ..
+python3 generate_thermal_case.py  # builds thermal/ from the converged flow
+cd thermal && ./Allrun && cd ..   # 8 temperature fields on the frozen flow
+python3 extract_profiles.py       # -> digitized_data/cfd_generated/cfd_profiles.csv
+```
 
-## Known simplifications (disclose these in your write-up)
+- `unit_cell/` — flow. `foamRun` with `solver incompressibleFluid` (v13
+  replaced `simpleFoam`); steady via `steadyState` + `SIMPLE`. Line
+  profiles of U, k, nut are sampled at every write (`system/functions`).
+- `thermal/` (generated) — all 8 temperature fields (Pr = 0.025/1/2/7 x
+  iso-temperature/iso-flux) solved at once as passive scalars with
+  `solver functions` + the `scalarTransport` function object (v13 replaced
+  `scalarTransportFoam`). Diffusivity = nu/Pr + nut/Pr_t (Pr_t = 0.9).
+  Wall BCs and uniform heat sinks mirror the 2023 DNS exactly: iso-temperature
+  T = 0 at the rod with sink 1 W/m³; iso-flux q = 1 W/m² with sink
+  4q/Dh = 50.96 W/m³ - the same value the DNS reports.
+- `extract_profiles.py` — reads the sampled lines, checks convergence
+  (change between the last two write times), writes one tidy CSV.
 
-- Unit cell (infinite array), not the paper's finite wall-bounded 6-rod
-  domain — matches the paper's own precedent for "reduced domain" URANS
-  studies, disclosed as insufficient for LES/DNS-grade fidelity but fine
-  for RANS-level surrogate training data.
-- No boundary-layer inflation (`addLayers false`) in the v0 snappyHexMesh —
-  add layers once the base mesh checks out, or wall-function accuracy will
-  be poor. Left off here so there's one fewer thing to debug on the first
-  meshing pass.
-- Air only in `unit_cell/` (needed to fix Re via bulk velocity); the other
-  three Prandtl numbers only ever appear as a passive-scalar diffusivity in
-  the `scalarTransportFoam` step, never as a different fluid.
+## Sampled lines (`case_geometry.py`)
+
+`seg1` -> `seg2` -> `seg3` together trace the DNS's unit-cell-boundary
+coordinate xi (rod in the narrow gap -> gap centre -> subchannel centre ->
+rod at 45°); `line15` is the 15° wall-normal line of DNS Fig. 7.
+
+## Disclosed simplifications
+
+- Infinite-array unit cell with symmetry planes, not the DNS's confined
+  six-rod domain with gap walls. The central unit cell of that domain is
+  geometrically identical to ours; the difference is the influence of the
+  outer walls.
+- Steady RANS: no gap vortex street / flow pulsations (no time axis; the
+  symmetry planes also suppress the antisymmetric gap oscillation). The DNS
+  pulsation frequency (3.7 Hz, St = 0.52) is out of reach by construction.
+- k-omega SST is a linear eddy-viscosity model: it predicts essentially no
+  secondary flow in the cross-section (the DNS finds it weak). An RSM such
+  as LRR (used by the v13 `ductSecondaryFlow` tutorial) is the upgrade path.
+- Constant Pr_t = 0.9. Known to be crude for liquid metals (Pr = 0.025);
+  compare the Pr = 0.025 Nusselt number against the DNS before trusting it.
+- Pr = 7 has no DNS counterpart (the 2023 DNS ran Pr = 0.025, 1, 2 only).

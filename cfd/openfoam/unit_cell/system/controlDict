@@ -1,31 +1,43 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  OpenFOAM v13. Steady RANS (SIMPLE via steadyState ddt + SIMPLE dict),
+  run with: foamRun
+\*---------------------------------------------------------------------------*/
 FoamFile
 {
-    version     2.0;
     format      ascii;
     class       dictionary;
+    location    "system";
     object      controlDict;
 }
 
-application     simpleFoam;
+solver          incompressibleFluid;
 
 startFrom       startTime;
+
 startTime       0;
 
 stopAt          endTime;
-endTime         2000;
+
+endTime         5000;
 
 deltaT          1;
 
 writeControl    timeStep;
-writeInterval   200;
 
-purgeWrite      2;
+writeInterval   500;
+
+purgeWrite      3;
 
 writeFormat     ascii;
-writePrecision  6;
+
+writePrecision  8;
+
 writeCompression off;
 
 timeFormat      general;
+
 timePrecision   6;
 
-runTimeModifiable true;
+runTimeModifiable yes;
+
+// ************************************************************************* //

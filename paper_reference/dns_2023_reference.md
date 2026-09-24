@@ -44,26 +44,54 @@ because "the presence of gap walls and the resulting asymmetry" breaks
 that symmetry; they instead average over a folded one-quarter "effective
 unit cell" specific to their bounded domain.
 
-This directly confirms what `NOTES.md` already disclosed about
-`cfd/openfoam/unit_cell`: our single-rod, symmetryPlane, infinite-array
-simplification is a real, acknowledged departure from both papers' actual
-geometry, not just from the 2018 paper's. Nothing to change in the
-OpenFOAM case as a result - the simplification was already correctly
-flagged - but cite this paper's Section 2 (not just the 2018 paper) when
-justifying it in a write-up.
+The effective unit cell the DNS averages over is one quarter of a
+subchannel - geometrically the same as this project's quarter unit cell
+(`cfd/openfoam/unit_cell`). So the DNS statistics are directly comparable
+with ours; the remaining difference is the influence of the DNS's outer gap
+walls on that central cell, which our symmetry planes leave out.
 
-## Best available digitization targets (better than the 2018 paper's Figs. 11-13/20-22)
+## The DNS set-up this project mirrors (Section 2)
 
-| Figure | Content | Use for |
+- U_b = 1 m/s, rho = 1, nu = Dh*U_b/Re_h, rho*cp = 1, alpha = nu/Pr.
+- Temperatures are passive scalars, several solved alongside one momentum
+  solution.
+- Iso-temperature: excess temperature Theta = T - T_w = 0 at the rod, with
+  a uniform volumetric sink of 1 W/m³ driving heat from the rod to the bulk.
+- Iso-flux: rod heat flux 1 W/m², with a uniform sink of 50.96 W/m³
+  (= flux x rod area / volume). Our quarter cell gives 4q/Dh = 50.957 W/m³ -
+  the same number, a useful consistency check on the geometry.
+- Gap walls in the DNS are adiabatic (we have symmetry planes instead).
+
+## Quantitative targets
+
+**Table 1, Nusselt numbers - no digitizing needed** (`table_dns_2023_nusselt.csv`):
+
+| Pr | Pe | Nu iso-T | Nu iso-flux | El-Genk correlation |
+|---|---|---|---|---|
+| 0.025 | 245 | 7.54 | 8.85 | 11.54 |
+| 1.0 | 9800 | 38.74 | 40.19 | 38.98 |
+| 2.0 | 19,600 | 52.00 | 52.77 | 49.00 |
+
+Nu = phi_m*Dh / (lambda*(T_w,m - T_b)), T_b = integral(u*T dA)/integral(u dA),
+wall means over -45° to 45° of the central rod (Eq. 4-5).
+`ml/src/evaluate.py` computes the same quantity from the PINN. Caveat: the
+PINN uses the unit-cell Dh (0.0785 m), the DNS its whole-domain Dh (0.0712 m).
+
+**Figures worth digitizing** (templates in `digitized_data/`):
+
+| Figure | Content | How it's used |
 |---|---|---|
-| Fig. 6 | Wall shear stress distribution around central rod (normalized by mean) | Direct check on our momentum solution's wall-shear prediction |
-| Fig. 7(b)-(d) | Mean streamwise velocity in wall units (U+ vs r+) at 0, 15, 45 degrees from the gap | The single best velocity validation target available - already in wall units, already compares against experiment (Hooper) and higher-Re DNS (Lai et al. 2019) |
-| Fig. 9 | Normal Reynolds stress components along the unit-cell boundary | No direct PINN output to compare (we don't resolve individual Reynolds stress components, only eddy-viscosity nu_t) - use qualitatively: confirms turbulence suppression in the gap vs. subchannel, a trend our nu_t field should also show |
-| Figs. 14-17 | Temperature statistics and turbulent heat flux, by Pr and thermal BC | Direct check on theta/temperature predictions - note Pr=7 has no entry here (see Pr gap above) |
-| Fig. 19 | PSD and Strouhal number of flow pulsations | Not reproducible by this project's steady RANS case (disclosed limitation) - cite as the concrete number that illustrates the gap, don't attempt to match it |
+| Fig. 6 | Wall shear around the central rod, / mean over -45..45° | vs. PINN wall shear from dw/dn |
+| Fig. 7(b)-(d) | U+ vs r+ at 0, 15, 45° from the gap (log axis) | vs. PINN in wall units, using its own local u_tau |
+| Fig. 11(a) | Iso-temperature wall heat flux, / mean | vs. PINN wall heat flux |
+| Fig. 12(a) | Iso-temperature Theta/Theta_b along the unit-cell boundary xi | vs. PINN along the same path |
 
-Add digitized points from this paper into the same `digitized_data/*.csv`
-files as the 2018 paper's figures where the quantity matches (e.g. Fig. 7's
-velocity profiles go into `velocity_line1_by_Re.csv` if you pick a case_id
-convention that avoids colliding with the 2018 paper's `Rn` names - e.g.
-prefix with `DNS_`).
+The unit-cell-boundary coordinate xi (Fig. 8) runs: rod surface in the narrow
+gap -> narrow-gap centre (xi/Dh ~ 0.1) -> subchannel centre -> back to the
+rod at 45° (xi/Dh ~ 1.75). Our sampled lines `seg1-seg3` follow exactly this.
+
+Not usable for our model: Fig. 9-10 and 13-17 (Reynolds stresses, anisotropy,
+temperature fluctuations, turbulent heat fluxes) are second-order turbulence
+statistics a RANS eddy-viscosity model doesn't produce; Fig. 12(b) (iso-flux)
+has an ambiguous temperature reference; Fig. 19 (pulsation spectrum) is out
+of reach of a steady model by construction.

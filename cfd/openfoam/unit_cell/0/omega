@@ -1,6 +1,5 @@
 FoamFile
 {
-    version     2.0;
     format      ascii;
     class       volScalarField;
     object      omega;
@@ -8,38 +7,18 @@ FoamFile
 
 dimensions      [0 0 -1 0 0 0 0];
 
-// omega = sqrt(k)/(Cmu^0.25 * l), l = 0.038*Dh, Dh=0.0785 m, Cmu=0.09.
-internalField   uniform 71.1;
+// omega = sqrt(k)/(Cmu^0.25 * l), l = 0.038*Dh
+internalField   uniform 37.5;
 
 boundaryField
 {
+    #includeEtc "caseDicts/setConstraintTypes"
+
     rod
     {
         type            omegaWallFunction;
-        value           uniform 71.1;
-    }
-    xMin
-    {
-        type            symmetryPlane;
-    }
-    xMax
-    {
-        type            symmetryPlane;
-    }
-    yMin
-    {
-        type            symmetryPlane;
-    }
-    yMax
-    {
-        type            symmetryPlane;
-    }
-    front
-    {
-        type            cyclic;
-    }
-    back
-    {
-        type            cyclic;
+        value           $internalField;
     }
 }
+
+// ************************************************************************* //

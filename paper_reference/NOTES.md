@@ -47,42 +47,17 @@ the source PDF table, not a real 10x discrepancy.
   1-3), which are images, not text. We do not have those numbers without
   digitizing the figures.
 
-## Simplification used in `cfd/openfoam/unit_cell`
+## How this project uses the 2018 paper now
 
-Because the full 6-rod-with-side-walls cross-section isn't numerically
-specified in the extractable text, the OpenFOAM case in this repo instead
-models a single square-pitch **unit cell** (one rod, symmetry planes on all
-four cell edges) — the same "infinite array" simplification the paper itself
-says other authors (Cardoso de Souza et al. 2015; Chandra et al. 2010) used
-for reduced-domain URANS studies. The paper's own point is that this
-simplification is *not* sufficient for LES/DNS-grade fidelity (missing
-gap-to-gap and wall effects) — but it is standard and adequate for a
-URANS-level training-data generator, which is all we need here. This is
-disclosed, not a silent shortcut: don't claim in a conference poster that this
-reproduces the paper's exact domain.
+For geometry and case context only: P/D, D, Re = 9800, the Prandtl numbers,
+and the Reynolds-scaling background (Table 2). Its figures (URANS line
+profiles) are no longer used for validation - the 2023 DNS of the same case
+is a far better reference. See `dns_2023_reference.md`.
 
-Unit-cell hydraulic diameter (idealized square-pitch, one rod):
-Dh = 4*(P^2 - pi*D^2/4)/(pi*D) = 0.0785 m (vs. paper's domain-implied 0.0714 m
-— different because the paper's domain includes wall-bounded subchannels, not
-an infinite array). The OpenFOAM case matches Re=9800 using this unit-cell Dh
-with air (rho=1.2 kg/m3, mu=1.8e-5 Pa.s), giving U_bulk ~= 1.87 m/s, not the
-paper's mass flow rate directly (which was for the full multi-rod domain).
-
-## Line 1 / Line 2 profiles (Figs. 11-13, 20, 22)
-
-The figure caption's non-dimensionalization formula came through the PDF
-text extraction as `y = (yni + yni)/(2*yn)`, which is almost certainly OCR
-corruption of a min-max normalization. This project treats the profile
-coordinate as plain min-max: `y_star = (y - y_min)/(y_max - y_min)` in [0,1]
-along each line. If you digitize the real figures and the shape doesn't match
-this assumption, fix it here first — everything downstream depends on it.
-
-## What "Line 1" and "Line 2" physically are
-
-Not given as coordinates in the extractable text (they're defined visually on
-Fig. 3/Fig. 11's diagram) beyond "across line 1 (till the mid of the gap)"
-appearing in the Fig. 12 caption. Treat Line 1 as the gap-to-center line
-(rod-gap to subchannel center) and Line 2 as the diagonal/secondary line, and
-confirm against the actual figures when you digitize them — this is a
-reasonable literature-standard convention for rod-bundle profile plots but
-is not independently confirmed from text alone.
+The OpenFOAM case models the quarter unit cell of an infinite square array
+with symmetry planes - the same simplification this paper notes other authors
+used for reduced-domain URANS (Cardoso de Souza et al. 2015; Chandra et al.
+2010), and which it warns is not sufficient for LES/DNS-grade fidelity. It is
+also exactly the "effective unit cell" over which the 2023 DNS averages its
+statistics. Case normalisation (U_b = 1, nu = Dh/Re) follows the 2023 DNS;
+see `cfd/openfoam/README.md`.

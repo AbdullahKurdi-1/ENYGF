@@ -1,8 +1,8 @@
 FoamFile
 {
-    version     2.0;
     format      ascii;
     class       dictionary;
+    location    "system";
     object      fvSolution;
 }
 
@@ -11,15 +11,15 @@ solvers
     p
     {
         solver          GAMG;
-        tolerance       1e-6;
-        relTol          0.05;
-        smoother        GaussSeidel;
+        smoother        DIC;
+        tolerance       1e-8;
+        relTol          0.01;
     }
 
     "(U|k|omega)"
     {
-        solver          smoothSolver;
-        smoother        GaussSeidel;
+        solver          PBiCGStab;
+        preconditioner  DILU;
         tolerance       1e-8;
         relTol          0.1;
     }
@@ -28,26 +28,28 @@ solvers
 SIMPLE
 {
     nNonOrthogonalCorrectors 1;
-    consistent               no;
+    consistent      yes;
+
+    // No boundary fixes the pressure level (periodic + walls + symmetry),
+    // so pin it at one cell.
+    pRefCell        0;
+    pRefValue       0;
 
     residualControl
     {
-        p               1e-4;
-        U               1e-4;
-        "(k|omega)"     1e-4;
+        p               1e-5;
+        U               1e-6;
+        "(k|omega)"     1e-6;
     }
 }
 
 relaxationFactors
 {
-    fields
-    {
-        p 0.3;
-    }
     equations
     {
-        U       0.7;
-        k       0.7;
-        omega   0.7;
+        U               0.9;
+        "(k|omega)"     0.7;
     }
 }
+
+// ************************************************************************* //

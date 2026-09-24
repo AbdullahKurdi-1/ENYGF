@@ -1,22 +1,21 @@
 # Python
 __pycache__/
 *.pyc
+.venv/
+.ipynb_checkpoints/
 
 # OpenFOAM run artifacts (numeric time dirs other than the tracked 0/)
 cfd/openfoam/unit_cell/constant/polyMesh/
-cfd/openfoam/unit_cell/constant/triSurface/
 cfd/openfoam/unit_cell/[1-9]*/
 cfd/openfoam/unit_cell/0.[0-9]*/
 cfd/openfoam/unit_cell/processor*/
 cfd/openfoam/unit_cell/postProcessing/
+cfd/openfoam/unit_cell/dynamicCode/
 cfd/openfoam/unit_cell/log.*
-cfd/openfoam/geometry/*.stl
-cfd/openfoam/cases/
+cfd/openfoam/thermal/
 
-# CFD-generated data mirrors what's tracked in digitized_data/README schema,
-# but the CSVs themselves are run outputs, not source
+# CFD output data (regenerate with cfd/openfoam/extract_profiles.py)
 digitized_data/cfd_generated/
 
 # ML outputs
-ml/outputs/*.pt
-ml/outputs/plots/
+ml/outputs/

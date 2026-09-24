@@ -1,0 +1,69 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  Line sampling, written at every write time.
+
+  seg1-seg3 trace the 2023 DNS paper's "unit cell boundary" coordinate xi
+  (its Figs. 8-9, 12-16):
+    seg1: rod surface at 0 deg -> narrow-gap centre      (along y = 0)
+    seg2: narrow-gap centre    -> subchannel centre      (along x = a)
+    seg3: subchannel centre    -> rod surface at 45 deg  (diagonal)
+  line15: surface-normal line at 15 deg from the gap (DNS Fig. 7(c)).
+  seg1 is also the 0-deg line and seg3 (reversed) the 45-deg line of Fig. 7.
+
+  Points sit 1e-6 m inside the fluid so none lands exactly on a boundary.
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      functions;
+}
+
+sampleFlow
+{
+    type            sets;
+    libs            ("libsampling.so");
+    writeControl    writeTime;
+    interpolationScheme cellPoint;
+    setFormat       raw;
+
+    fields          (U k nut);
+
+    sets
+    {
+        seg1
+        {
+            type    lineUniform;
+            axis    distance;
+            start   (0.070001  0.000001  0.0005);
+            end     (0.077499  0.000001  0.0005);
+            nPoints 100;
+        }
+        seg2
+        {
+            type    lineUniform;
+            axis    distance;
+            start   (0.077499  0.000001  0.0005);
+            end     (0.077499  0.077499  0.0005);
+            nPoints 100;
+        }
+        seg3
+        {
+            type    lineUniform;
+            axis    distance;
+            start   (0.077499  0.077499  0.0005);
+            end     (0.049498  0.049498  0.0005);
+            nPoints 100;
+        }
+        line15
+        {
+            type    lineUniform;
+            axis    distance;
+            start   (0.067615  0.018118  0.0005);
+            end     (0.077499  0.020766  0.0005);
+            nPoints 100;
+        }
+    }
+}
+
+// ************************************************************************* //

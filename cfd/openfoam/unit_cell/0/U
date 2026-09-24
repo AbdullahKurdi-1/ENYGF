@@ -1,6 +1,5 @@
 FoamFile
 {
-    version     2.0;
     format      ascii;
     class       volVectorField;
     object      U;
@@ -8,36 +7,16 @@ FoamFile
 
 dimensions      [0 1 -1 0 0 0 0];
 
-internalField   uniform (0 0 1.872);
+internalField   uniform (0 0 1);
 
 boundaryField
 {
+    #includeEtc "caseDicts/setConstraintTypes"
+
     rod
     {
         type            noSlip;
     }
-    xMin
-    {
-        type            symmetryPlane;
-    }
-    xMax
-    {
-        type            symmetryPlane;
-    }
-    yMin
-    {
-        type            symmetryPlane;
-    }
-    yMax
-    {
-        type            symmetryPlane;
-    }
-    front
-    {
-        type            cyclic;
-    }
-    back
-    {
-        type            cyclic;
-    }
 }
+
+// ************************************************************************* //

@@ -1,114 +1,137 @@
-"""Physics-informed model for the rod-bundle unit cell.
+"""PINN for fully developed flow and heat transfer in a rod-bundle unit cell.
 
-Two sub-networks, mirroring the paper's own physics (Section 4.3: momentum
-is identical across all four Prandtl numbers and both wall BCs; only the
-passive-scalar temperature equation changes):
+Unknowns live in the cross-section (x, y) of the quarter unit cell:
+  w(x, y)    axial (streamwise) velocity
+  nu_t(x, y) eddy viscosity (Boussinesq closure; supervised by CFD nu_t)
+  k(x, y)    turbulent kinetic energy (data-fit only, no PDE of its own)
+  G(Re)      driving axial pressure gradient, fixed by the bulk-velocity constraint
+  T(x, y)    temperature, per Prandtl number and wall boundary condition
 
-  MomentumNet(x, y, Re)         -> u, v, p, nu_t
-  ThermalNet(x, y, Re, Pr, bc)  -> theta   (uses MomentumNet's u, v as input)
+Two sub-networks, matching the papers' passive-scalar treatment: temperature
+never feeds back into the flow.
 
-Inputs are normalized before the Fourier feature embedding; Re is log-scaled
-since the calibration sweep spans 1531-49000 (Table 2).
+Wall conditions that can be built in exactly are: w = nu_t = k = 0 at the rod,
+and T = 0 at the rod for iso-temperature cases (multiplying by
+tanh(d/wall_layer), d = distance from the rod).
 """
-import numpy as np
+import math
+
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class FourierFeatures(nn.Module):
-    def __init__(self, in_dim, n_features, scale, seed=0):
+    def __init__(self, n_features, scale, seed):
         super().__init__()
         g = torch.Generator().manual_seed(seed)
-        B = torch.randn(in_dim, n_features, generator=g) * scale
-        self.register_buffer("B", B)
+        self.register_buffer("B", torch.randn(2, n_features, generator=g) * scale)
 
-    def forward(self, x):
-        proj = 2 * np.pi * x @ self.B
-        return torch.cat([torch.sin(proj), torch.cos(proj)], dim=-1)
+    def forward(self, xy):
+        proj = 2 * math.pi * xy @ self.B
+        return torch.cat([xy, torch.sin(proj), torch.cos(proj)], dim=-1)
 
     @property
     def out_dim(self):
-        return self.B.shape[1] * 2
+        return 2 + 2 * self.B.shape[1]
 
 
-def _mlp(in_dim, hidden, out_dim):
-    layers = []
-    d = in_dim
+def mlp(in_dim, hidden, out_dim):
+    layers, d = [], in_dim
     for h in hidden:
         layers += [nn.Linear(d, h), nn.Tanh()]
         d = h
-    layers += [nn.Linear(d, out_dim)]
+    layers.append(nn.Linear(d, out_dim))
     return nn.Sequential(*layers)
 
 
-class MomentumNet(nn.Module):
-    def __init__(self, cfg, re_min, re_max):
-        super().__init__()
-        self.re_min, self.re_max = re_min, re_max
-        self.fourier = FourierFeatures(2, cfg["fourier_features"], cfg["fourier_scale"], seed=0)
-        # outputs: u, v, p, nut_raw, k_raw
-        self.net = _mlp(self.fourier.out_dim + 1, cfg["momentum_hidden"], 5)
-        self.nut_scale = cfg["nut_scale"]
-
-    def _re_norm(self, re):
-        log_re = torch.log(re)
-        log_min, log_max = np.log(self.re_min), np.log(self.re_max)
-        return 2 * (log_re - log_min) / (log_max - log_min) - 1
-
-    def forward(self, xy, re):
-        feats = self.fourier(xy)
-        re_n = self._re_norm(re).unsqueeze(-1)
-        out = self.net(torch.cat([feats, re_n], dim=-1))
-        u, v, p = out[:, 0:1], out[:, 1:2], out[:, 2:3]
-        nut_raw, k_raw = out[:, 3:4], out[:, 4:5]
-        nut = torch.nn.functional.softplus(nut_raw) * self.nut_scale
-        # k is data-fit only (Fig. 13 profiles) - the Boussinesq closure here
-        # uses nut directly and never reads k back, so it carries no physics
-        # residual of its own; it's along for the ride as an extra observable.
-        k = torch.nn.functional.softplus(k_raw)
-        return u, v, p, nut, k
-
-
-class ThermalNet(nn.Module):
-    def __init__(self, cfg, re_min, re_max, pr_values):
-        super().__init__()
-        self.re_min, self.re_max = re_min, re_max
-        self.pr_min, self.pr_max = min(pr_values), max(pr_values)
-        self.fourier = FourierFeatures(2, cfg["fourier_features"], cfg["fourier_scale"], seed=1)
-        # + Re, Pr, bc, u, v (momentum coupling)
-        self.net = _mlp(self.fourier.out_dim + 5, cfg["thermal_hidden"], 1)
-
-    def _re_norm(self, re):
-        log_re = torch.log(re)
-        log_min, log_max = np.log(self.re_min), np.log(self.re_max)
-        return 2 * (log_re - log_min) / (log_max - log_min) - 1
-
-    def _pr_norm(self, pr):
-        log_pr = torch.log(pr)
-        log_min, log_max = np.log(self.pr_min), np.log(self.pr_max)
-        return 2 * (log_pr - log_min) / (log_max - log_min) - 1
-
-    def forward(self, xy, re, pr, bc, u, v):
-        feats = self.fourier(xy)
-        re_n = self._re_norm(re).unsqueeze(-1)
-        pr_n = self._pr_norm(pr).unsqueeze(-1)
-        bc_n = bc.unsqueeze(-1).float()
-        inp = torch.cat([feats, re_n, pr_n, bc_n, u, v], dim=-1)
-        return self.net(inp)
+def _log_normaliser(values):
+    lo, hi = math.log(min(values)), math.log(max(values))
+    if hi - lo < 1e-12:
+        return lambda v: torch.zeros_like(v)
+    return lambda v: 2 * (torch.log(v) - lo) / (hi - lo) - 1
 
 
 class RodBundlePINN(nn.Module):
-    def __init__(self, cfg, re_min, re_max, pr_values):
+    def __init__(self, cfg):
         super().__init__()
-        self.momentum = MomentumNet(cfg["model"], re_min, re_max)
-        self.thermal = ThermalNet(cfg["model"], re_min, re_max, pr_values)
+        g, m, fl, th = cfg["geometry"], cfg["model"], cfg["flow"], cfg["thermal"]
+        self.r = g["rod_radius"]
+        self.a = g["half_pitch"]
+        self.dh = g["dh_cell"]
+        self.u_bulk = fl["u_bulk"]
+        self.pr_t = th["pr_turbulent"]
+        self.q_wall = th["wall_heat_flux"]
+        self.sink_iso_t = th["sink_iso_t"]
+        self.sink_iso_flux = self.q_wall * 4.0 / self.dh
+        self.wall_layer = m["wall_layer"]
+        self.nut_scale = m["nut_scale"]
+        self.k_scale = m["k_scale"]
+        self.g_scale = m["g_scale"]
+        self.re_norm = _log_normaliser(fl["re_values"])
+        self.pr_norm = _log_normaliser(th["pr_values"])
 
-    def forward(self, x, y, re, pr, bc):
-        xy = torch.cat([x, y], dim=-1)
-        u, v, p, nut, k = self.momentum(xy, re)
-        # detach: temperature is a passive scalar (paper Section 4.3) - it is
-        # advected by the frozen momentum solution, exactly like running
-        # scalarTransportFoam on a frozen U field after simpleFoam converges
-        # (cfd/openfoam/generate_scalar_cases.py). One-way coupling only.
-        theta = self.thermal(xy, re, pr, bc, u.detach(), v.detach())
-        return {"u": u, "v": v, "p": p, "nut": nut, "k": k, "theta": theta}
+        self.wall_scales = m["wall_feature_scales"]
+
+        self.ff_m = FourierFeatures(m["fourier_features"], m["fourier_scale"], seed=0)
+        self.ff_t = FourierFeatures(m["fourier_features"], m["fourier_scale"], seed=1)
+        n_wall = len(self.wall_scales) + 1
+        self.momentum_net = mlp(self.ff_m.out_dim + n_wall + 1, m["momentum_hidden"], 3)
+        self.thermal_net = mlp(self.ff_t.out_dim + n_wall + 3, m["thermal_hidden"], 1)
+        self.g_net = mlp(1, [16], 1)
+
+    # ---- helpers -----------------------------------------------------------
+    def nu(self, re):
+        return self.u_bulk * self.dh / re
+
+    def wall_distance(self, x, y):
+        return torch.sqrt(x**2 + y**2) - self.r
+
+    def wall_factor(self, x, y):
+        # No clamp: at points on the rod, rounding can make d slightly negative,
+        # and a clamp would then zero the wall-normal gradient (wall shear, heat flux).
+        return torch.tanh(self.wall_distance(x, y) / self.wall_layer)
+
+    def sink(self, bc):
+        return torch.where(bc > 0.5, torch.full_like(bc, self.sink_iso_flux), torch.full_like(bc, self.sink_iso_t))
+
+    def t_ref(self, re, pr, bc):
+        """Temperature scale S*Dh^2/alpha_ref, so the network output is O(1)."""
+        nu = self.nu(re)
+        alpha_ref = nu / pr + 20.0 * nu / self.pr_t
+        return self.sink(bc) * self.dh**2 / alpha_ref
+
+    def _xy(self, x, y):
+        return torch.cat([x / self.a, y / self.a], dim=-1)
+
+    def _wall_features(self, x, y):
+        """Multi-scale functions of wall distance. The near-wall layer is ~100x
+        thinner than the cell - too fine for coordinate-based features alone."""
+        d = self.wall_distance(x, y)
+        feats = [torch.tanh(d / s) for s in self.wall_scales]
+        feats.append(torch.log1p(torch.clamp(d, min=0.0) / self.wall_scales[0]) / 10.0)
+        return torch.cat(feats, dim=-1)
+
+    # ---- outputs -----------------------------------------------------------
+    def momentum(self, x, y, re):
+        """x, y, re: (N, 1). Returns w, nu_t, k, each (N, 1)."""
+        feats = torch.cat([self.ff_m(self._xy(x, y)), self._wall_features(x, y), self.re_norm(re)], dim=-1)
+        out = self.momentum_net(feats)
+        f = self.wall_factor(x, y)
+        w = f * out[:, 0:1]
+        nut = f**2 * F.softplus(out[:, 1:2]) * self.nut_scale
+        k = f**2 * F.softplus(out[:, 2:3]) * self.k_scale
+        return w, nut, k
+
+    def pressure_gradient(self, re):
+        return F.softplus(self.g_net(self.re_norm(re))) * self.g_scale
+
+    def temperature(self, x, y, re, pr, bc):
+        """bc: 0 = iso-temperature (T=0 at rod, built in), 1 = iso-flux."""
+        feats = torch.cat(
+            [self.ff_t(self._xy(x, y)), self._wall_features(x, y), self.re_norm(re), self.pr_norm(pr), bc], dim=-1
+        )
+        theta = self.thermal_net(feats)
+        f = self.wall_factor(x, y)
+        theta = torch.where(bc > 0.5, theta, f * theta)
+        return theta * self.t_ref(re, pr, bc)

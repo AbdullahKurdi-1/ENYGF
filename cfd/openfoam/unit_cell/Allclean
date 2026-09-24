@@ -1,9 +1,6 @@
 #!/bin/sh
 cd "${0%/*}" || exit 1
 
-rm -rf constant/polyMesh
-rm -rf constant/triSurface
-rm -rf processor*
-rm -rf 0.org
-find . -maxdepth 1 -regex './[1-9][0-9]*' -exec rm -rf {} +
-rm -rf postProcessing log.*
+. "$WM_PROJECT_DIR/bin/tools/CleanFunctions"
+
+cleanCase

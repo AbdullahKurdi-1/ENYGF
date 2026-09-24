@@ -1,16 +1,29 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  k-omega SST, the same model family the 2018 calibration paper used.
+  Linear eddy-viscosity models like this predict (essentially) no secondary
+  flow in the cross-section - the 2023 DNS reports that secondary flow is
+  weak, so this is an accepted simplification, but it is one. The v13
+  tutorial ductSecondaryFlow uses RASModel LRR (a Reynolds-stress model)
+  precisely because it can capture secondary flow; that is the upgrade path
+  if it ever matters.
+\*---------------------------------------------------------------------------*/
 FoamFile
 {
-    version     2.0;
     format      ascii;
     class       dictionary;
+    location    "constant";
     object      momentumTransport;
 }
 
-simulationType RAS;
+simulationType  RAS;
 
 RAS
 {
-    model           kOmegaSST;
+    RASModel        kOmegaSST;
+
     turbulence      on;
+
     printCoeffs     on;
 }
+
+// ************************************************************************* //

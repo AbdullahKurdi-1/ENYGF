@@ -1,94 +1,92 @@
-# ENYGF 2026 — AI & Nuclear Symbiosis: PINN Surrogate for a Closely-Spaced Rod Bundle
+# ENYGF — AI & Nuclear Symbiosis: PINN Surrogate for a Closely-Spaced Rod Bundle
 
-Physics-informed ML surrogate for velocity, TKE, and temperature profiles in
-a P/D=1.107 bare rod bundle, built against Shams & Kwiatkowski (2018),
-*Annals of Nuclear Energy* 121:146-161 — see `paper_reference/NOTES.md` for
-exactly what that paper does and does not give us, and why the pipeline is
-structured the way it is below.
+Physics-informed neural network (PINN) for fully developed turbulent flow and
+heat transfer in a bare rod bundle (P/D = 1.107, Re = 9800), built against
+two published papers from the NRG/NCBJ programme:
 
-## Why this structure
+- Shams & Kwiatkowski (2018), *Ann. Nucl. Energy* 121 — URANS calibration
+  study that designed the case (geometry, Re, Prandtl numbers).
+- Mathur, Kwiatkowski, Potempski & Komen (2023), *Int. J. Heat Mass Transfer*
+  211 — the DNS of that case. **The independent validation reference.**
 
-The paper is a URANS calibration study, not a released DNS dataset — no
-public full-field rod-bundle dataset with heat transfer exists (confirmed:
-even Merzari et al. 2020's DNS follow-up work on a 5x5 bundle says so
-explicitly). So "using the paper as a benchmark" means two things at once,
-not a data download:
+See `paper_reference/` for what each paper does and does not provide.
 
-1. **Generate real CFD ground truth yourself**, from the paper's own
-   finalized case spec (`paper_reference/table5_finalized_params.csv`), via
-   OpenFOAM — `cfd/openfoam/`.
-2. **Validate against the paper's own published figures**, by digitizing
-   the line profiles it actually reports (Figs. 11-13, 20, 22) — into
-   `digitized_data/`.
+## Approach
 
-Both feed the same PyTorch RANS-PINN in `ml/`, through one shared CSV
-schema, so the model can't tell your CFD run from the paper's digitized
-curves.
+No public full-field dataset exists for this case, so:
 
-## Pipeline, in order
+1. **Training data** comes from our own lightweight CFD: an OpenFOAM v13
+   steady RANS (k-omega SST) of the quarter unit cell, with 8 passive-scalar
+   temperature fields (Pr = 0.025/1/2/7 x iso-temperature/iso-flux). Set up
+   with the same normalisation, wall BCs and heat sinks as the DNS.
+2. **Validation data** comes from the DNS and is **never used in training**:
+   its Nusselt numbers (Table 1, exact values) and, once digitized, its
+   wall shear, near-wall velocity (U+ vs r+), wall heat flux and temperature
+   profiles.
 
+## Pipeline
+
+```bash
+# 1. CFD (needs OpenFOAM v13 - see cfd/openfoam/README.md)
+cd cfd/openfoam/unit_cell && ./Allrun && cd ..
+python3 generate_thermal_case.py
+cd thermal && ./Allrun && cd ..
+python3 extract_profiles.py          # -> digitized_data/cfd_generated/cfd_profiles.csv
+
+# 2. Digitize DNS figures (optional but recommended) - digitized_data/README.md
+
+# 3. PINN
+cd ../../ml
+python3 src/train.py                 # ~6000 epochs; check the printed loss terms
+python3 src/evaluate.py              # CFD fit + DNS comparison, plots in ml/outputs/plots/
 ```
-1. cfd/openfoam/geometry/make_rod_stl.py     -> rod.stl
-2. cfd/openfoam/unit_cell/Allrun             -> converged RANS flow field (simpleFoam, k-omega SST)
-3. cfd/openfoam/generate_scalar_cases.py     -> 8 Pr x BC scalarTransportFoam cases (Table 4)
-4. (run each case's scalarTransportFoam)
-5. cfd/openfoam/extract_profiles.py          -> digitized_data/cfd_generated/*.csv
-6. digitize Figs. 11-13/20/22 by hand        -> digitized_data/*.csv  (see its README)
-7. ml/src/train.py                           -> trains the PINN on everything above
-8. ml/src/evaluate.py                        -> prediction-vs-reference plots + RMSE
-```
 
-Steps 1-5 need OpenFOAM (your machine, not this repo's dev environment).
-Steps 7-8 need only `ml/requirements.txt` and run anywhere, even with zero
-CFD data — the pipeline degrades gracefully to training on whatever's in
-`digitized_data/` (empty templates by default; fill them in per its
-README before results mean anything).
+## The model (`ml/src/`)
 
-## What the model actually is
+Cross-section coordinates (x, y) of the quarter unit cell; U_b = 1,
+nu = Dh/Re, rho*cp = 1.
 
-Two coupled sub-networks (`ml/src/model.py`), matching the paper's own
-physics claim that momentum is Pr/BC-independent (Section 4.3):
+- **Flow network** -> axial velocity w, eddy viscosity nu_t, TKE k; plus a
+  learned driving pressure gradient G(Re). Axial RANS momentum
+  0 = G + div((nu + nu_t) grad w), with the bulk velocity held at U_b. The
+  eddy viscosity is supervised directly by the CFD's nu_t: without it the
+  momentum equation alone cannot pin it down.
+- **Thermal network** -> T per (Pr, wall BC). Energy
+  0 = div((nu/Pr + nu_t/Pr_t) grad T) - S, with the DNS's uniform heat sinks.
+  One-way coupled: temperature never trains the flow network.
+- Exact wall conditions built into the network (w = nu_t = k = 0 and
+  iso-temperature T = 0 at the rod); symmetry planes, iso-flux wall heat
+  flux and bulk velocity enforced as losses. Multi-scale wall-distance input
+  features and self-normalising loss weights address the usual PINN
+  convergence problem of very thin near-wall layers.
 
-- `MomentumNet(x, y, Re) -> u, v, p, nu_t, k` — steady RANS with a
-  Boussinesq eddy-viscosity closure (`nu_t` is a learned field, not a
-  transported k-omega quantity — see `ml/src/physics.py` docstring for why).
-- `ThermalNet(x, y, Re, Pr, bc, u, v) -> theta` — passive-scalar energy
-  equation, one-way coupled (temperature never feeds back into momentum,
-  exactly like running `scalarTransportFoam` on a frozen velocity field).
+Tests: `cd ml && python3 -m pytest tests -q` - `test_physics.py` checks the
+PDE operators against hand-derived results; `test_smoke.py` runs the whole
+pipeline on fake data.
 
-Losses: data-fit against whatever's in `digitized_data/` (paper figures +
-your CFD), PDE residuals via autograd at random collocation points
-(continuity, momentum, energy), and no-slip / symmetryPlane BC losses.
+## Disclosed limitations
 
-## Known, disclosed simplifications
+State these in any write-up:
 
-Put these in your write-up rather than letting a reviewer find them first:
-
-- OpenFOAM case models a single-rod **unit cell** (infinite square array via
-  symmetryPlane BCs) run **steady-state**, not the paper's finite 6-rod,
-  wall-bounded, unsteady domain. This isn't just lower fidelity - it
-  structurally cannot reproduce the paper's central subject (the gap vortex
-  street / axial flow pulsations): a steady solver has no time axis for an
-  oscillation, and a symmetryPlane BC enforces the mirror symmetry that
-  antisymmetric gap oscillations violate. State the validation claim as
-  **mean-flow trends only** (profile shapes and their ordering across Re/Pr),
-  never as reproducing the paper's simulation. See `cfd/openfoam/README.md`
-  for the full reasoning and what a genuine pulsation-capable rebuild would
-  require (periodic multi-rod cluster + unsteady `pimpleFoam`) if that's
-  ever wanted as a stretch goal.
-- Turbulence closure is Boussinesq/eddy-viscosity inside the PINN, not a
-  transported k-omega model — `k` is predicted but is a data-fit output
-  only, with no PDE residual of its own.
-- The paper's Line 1 / Line 2 non-dimensionalization arrived through PDF
-  text extraction as a garbled formula; treated as min-max normalization.
-  Verify once you have the actual figures in front of you.
-- The OpenFOAM case in `cfd/openfoam/unit_cell` was written without a local
-  OpenFOAM install to test against — expect a normal amount of mesh/solver
-  iteration on your machine, it's a first-pass scaffold.
+- Unit cell with symmetry planes, not the DNS's confined six-rod domain
+  (its central unit cell is geometrically identical; outer-wall influence
+  is left out).
+- Steady RANS training data: no gap vortex street / flow pulsations (the DNS
+  measures 3.7 Hz, St = 0.52 - unreachable by construction). Validation
+  claims are about mean quantities only.
+- Linear eddy-viscosity closure (k-omega SST in the CFD, nu_t in the PINN):
+  no secondary flow in the cross-section. Constant Pr_t = 0.9, known to be
+  crude for liquid metals.
+- The Nusselt comparison uses the unit-cell Dh (0.0785 m) vs. the DNS's
+  whole-domain Dh (0.0712 m).
+- Pr = 7 has no DNS counterpart.
+- Single Reynolds number (9800) unless you add CFD runs at others
+  (`ml/configs/default.yaml: flow.re_values`).
 
 ## Setup
 
-```
+```bash
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r ml/requirements.txt
-cd ml && python3 -m pytest tests/test_smoke.py -q   # pipeline sanity check, no CFD needed
+cd ml && python3 -m pytest tests -q
 ```
