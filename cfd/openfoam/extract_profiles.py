@@ -122,16 +122,26 @@ def convergence_report(func_dir: Path, requested_fields, label):
         return
     a = read_set_files(ts[-2], requested_fields)
     b = read_set_files(ts[-1], requested_fields)
-    worst = 0.0
+    worst, worst_col, skipped = 0.0, None, set()
     for s in b:
         for col, vb in b[s].items():
             if col.lower() == "distance" or col not in a.get(s, {}):
                 continue
             va = a[s][col]
-            scale = max(max(abs(v) for v in vb), 1e-30)
-            worst = max(worst, max(abs(x - y) for x, y in zip(va, vb)) / scale)
+            scale = max(abs(v) for v in list(va) + list(vb))
+            # Columns that are zero to round-off (e.g. U_x, U_y: no secondary
+            # flow with k-omega SST) have meaningless relative changes.
+            if scale < 1e-10:
+                skipped.add(col)
+                continue
+            change = max(abs(x - y) for x, y in zip(va, vb)) / scale
+            if change > worst:
+                worst, worst_col = change, f"{col} on {s}"
     flag = "OK" if worst < 0.01 else "NOT CONVERGED - run longer"
-    print(f"[{label}] max relative change between t={ts[-2].name} and t={ts[-1].name}: {worst:.2e}  {flag}")
+    print(f"[{label}] max relative change between t={ts[-2].name} and t={ts[-1].name}: "
+          f"{worst:.2e} ({worst_col})  {flag}")
+    if skipped:
+        print(f"[{label}] ignored (zero to round-off): {sorted(skipped)}")
 
 
 def main(unit_cell: Path, thermal: Path, out_csv: Path):
