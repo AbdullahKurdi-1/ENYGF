@@ -65,6 +65,29 @@ def split_field_names(text, known_fields):
     return out
 
 
+def resolve_truncated(names, requested_fields, path):
+    """OpenFOAM v13 shortens long column names in raw headers, e.g.
+    'T_Pr0p025_isoFlux' -> 'T_Pr0p025_is...'. Map each shortened name to the
+    one requested field it can be: same prefix, and not already present in
+    full elsewhere in the header. Refuse to guess if that isn't unique."""
+    full = set(names)
+    out = []
+    for n in names:
+        if not n.endswith("..."):
+            out.append(n)
+            continue
+        prefix = n[:-3]
+        candidates = [c for c in expand(requested_fields) if c.startswith(prefix) and c not in full]
+        if len(candidates) != 1:
+            raise SystemExit(
+                f"Column '{n}' in {path} is shortened and matches {candidates or 'no'} requested "
+                "fields - can't resolve it safely. Use shorter field names."
+            )
+        out.append(candidates[0])
+        full.add(candidates[0])
+    return out
+
+
 def read_set_files(time_dir: Path, requested_fields):
     """Return {set_name: {column_name: [values]}} for every raw file.
 
@@ -84,7 +107,7 @@ def read_set_files(time_dir: Path, requested_fields):
         stem = f.name.split(".")[0]
         set_name = stem.split("_")[0]
         if header:
-            names = header[-1].lstrip("#").split()
+            names = resolve_truncated(header[-1].lstrip("#").split(), requested_fields, f)
         else:
             fields = split_field_names(stem[len(set_name) + 1:], requested_fields)
             names = ["distance"] + expand(fields)
