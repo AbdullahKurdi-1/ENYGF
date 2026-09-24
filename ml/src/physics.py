@@ -123,6 +123,22 @@ def wall_heat_flux_loss(model, n, device, re_values, pr_values):
     return (((flux_into_fluid - model.q_wall) / model.q_wall) ** 2).mean()
 
 
+def wall_shear_balance_loss(model, n, device, re_values):
+    """Integral momentum balance of the whole cell: G * A = integral of the wall
+    shear over the rod arc (the symmetry planes carry no shear). Ties the
+    learned pressure gradient to the network's own wall shear, which the
+    pointwise residual alone does not pin down well."""
+    x, y, phi = sample_wall(model, n, device)
+    x, y = x.requires_grad_(True), y.requires_grad_(True)
+    re = conditions(re_values, n, device)
+    w, _, _ = model.momentum(x, y, re)
+    tau = model.nu(re) * (grad(w, x) * torch.cos(phi) + grad(w, y) * torch.sin(phi))
+    area = model.a**2 - math.pi * model.r**2 / 4
+    perimeter = math.pi * model.r / 2
+    G = model.pressure_gradient(re)
+    return (((G - tau * perimeter / area) / model.g_scale) ** 2).mean()
+
+
 def gauge_loss(model, device, re_values, pr_values):
     n = len(re_values) * len(pr_values)
     re = torch.tensor([r for r in re_values for _ in pr_values], dtype=torch.float32, device=device).unsqueeze(1)
@@ -134,7 +150,24 @@ def gauge_loss(model, device, re_values, pr_values):
     return ((T / model.t_ref(re, pr, bc)) ** 2).mean()
 
 
-# ---- derived quantities (evaluation) ----------------------------------------
+# ---- derived quantities ---------------------------------------------------------
+def wall_shear_at(model, x, y, re):
+    """tau_w/rho = nu * dw/drho at rod points (x, y). Keeps the graph (used in training)."""
+    x, y = x.clone().requires_grad_(True), y.clone().requires_grad_(True)
+    w, _, _ = model.momentum(x, y, re)
+    rho = torch.sqrt(x**2 + y**2)
+    return model.nu(re) * (grad(w, x) * x + grad(w, y) * y) / rho
+
+
+def wall_temperature_at(model, x, y, re, pr, bc):
+    """(T_wall, heat flux into the fluid) at rod points (x, y). Keeps the graph."""
+    x, y = x.clone().requires_grad_(True), y.clone().requires_grad_(True)
+    T = model.temperature(x, y, re, pr, bc)
+    rho = torch.sqrt(x**2 + y**2)
+    dT_drho = (grad(T, x) * x + grad(T, y) * y) / rho
+    return T, -(model.nu(re) / pr) * dT_drho
+
+
 def wall_shear(model, re_value, angles_rad, device):
     """tau_w/rho = nu * dw/drho at the rod, at the given angles from the gap."""
     phi = torch.as_tensor(angles_rad, dtype=torch.float32, device=device).reshape(-1, 1)
@@ -170,10 +203,11 @@ def bulk_temperature(model, re_value, pr, bc, n, device):
 
 
 def nusselt(model, re_value, pr, bc, device, n_bulk=50000, n_wall=400):
-    """Nu = phi_m * Dh / (lambda * (T_w,m - T_b)), as in the 2023 DNS (their Eq. 4).
-    Wall averages over 0-45 deg, which by symmetry equals the DNS's -45..45."""
+    """Nu = phi_m * Dh / (lambda * (T_w,m - T_b)), as in the 2023 DNS (their Eq. 4),
+    with its Dh = 0.0712 m. Wall averages over 0-45 deg, which by symmetry
+    equals the DNS's -45..45."""
     angles = torch.linspace(0, math.pi / 4, n_wall)
     Tw, flux = wall_temperature_data(model, re_value, pr, bc, angles, device)
     Tb = bulk_temperature(model, re_value, pr, bc, n_bulk, device)
-    lam = model.u_bulk * model.dh / re_value / pr
-    return float(flux.mean() * model.dh / (lam * (Tw.mean() - Tb)))
+    lam = model.u_bulk * model.dh_ref / re_value / pr
+    return float(flux.mean() * model.dh_ref / (lam * (Tw.mean() - Tb)))

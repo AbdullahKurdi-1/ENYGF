@@ -1,5 +1,8 @@
-"""Collect the sampled line profiles from the flow and thermal cases into
-one tidy CSV for the PINN: digitized_data/cfd_generated/cfd_profiles.csv
+"""Collect the CFD results for the PINN, into digitized_data/cfd_generated/:
+
+  cfd_profiles.csv  sampled line profiles (DNS unit-cell path + 15 deg line)
+  cfd_field.csv     every cell of the mesh (and the iso-flux wall temperatures)
+  cfd_nusselt.csv   the CFD's own Nusselt numbers, defined as in the 2023 DNS
 
 Columns: case_id, line, s, xi, x, y, quantity, value, Re, Pr, bc
   quantity is one of: w (axial velocity), k, nut, T
@@ -13,6 +16,13 @@ gap (first point of seg1). The PINN uses the same gauge.
 Also reports how much each profile changed between the last two write times,
 as a convergence check.
 
+cfd_field.csv columns: case_id, kind, x, y, area, quantity, value, Re, Pr, bc
+  kind = cell (cell centre, area = cell cross-section area) or
+         wall (on the rod surface, area = 0): quantity tau_w (wall shear
+         stress / rho), q_w (iso-temperature wall heat flux) or T (iso-flux
+         wall temperature). Wall gradients use the first cell, which sits at
+         y+ < 1.
+
 Usage:
     python3 extract_profiles.py
 """
@@ -22,7 +32,13 @@ import math
 import re
 from pathlib import Path
 
-from case_geometry import NU, PR_VALUES, RE, SAMPLE_LINES, U_BULK, DH_CELL, field_name
+import numpy as np
+
+from case_geometry import (
+    DH_CELL, DH_DNS, NU, PR_VALUES, RE, ROD_RADIUS, SAMPLE_LINES, SINK_ISO_T, U_BULK,
+    WALL_HEAT_FLUX, field_name,
+)
+from foam_io import Mesh, read_internal_field, read_patch_value
 
 HERE = Path(__file__).resolve().parent
 BCS = ["isoT", "isoFlux"]
@@ -167,12 +183,109 @@ def convergence_report(func_dir: Path, requested_fields, label):
         print(f"[{label}] ignored (zero to round-off): {sorted(skipped)}")
 
 
-def main(unit_cell: Path, thermal: Path, out_csv: Path):
+def latest_time(case: Path) -> Path:
+    times = []
+    for p in case.iterdir():
+        try:
+            if p.is_dir() and float(p.name) > 0:
+                times.append((float(p.name), p))
+        except ValueError:
+            pass
+    if not times:
+        raise SystemExit(f"No results (time directory > 0) in {case}.")
+    return max(times)[1]
+
+
+def export_field(unit_cell: Path, thermal: Path, field_csv: Path, nusselt_csv: Path):
+    """Every cell of the mesh, plus the CFD's Nusselt numbers (2023 DNS Eq. 4-5)."""
+    mesh = Mesh(unit_cell)
+    n = mesh.n_cells
+    flow_t = latest_time(unit_cell)
+    x, y = mesh.cell_xy[:, 0], mesh.cell_xy[:, 1]
+    area = mesh.cell_area
+    w = read_internal_field(flow_t / "U", n)[:, 2]
+    rows = []
+
+    def add(case_id, kind, xs, ys, areas, q, vals, pr="", bc=""):
+        rows.extend((case_id, kind, a, b, c, q, v, RE, pr, bc) for a, b, c, v in zip(xs, ys, areas, vals))
+
+    for q, name in (("w", None), ("k", "k"), ("nut", "nut")):
+        vals = w if name is None else read_internal_field(flow_t / name, n)
+        add("flow", "cell", x, y, area, q, vals)
+
+    # Driving pressure gradient from the wall shear: G * A = sum(tau_w * L).
+    rod = mesh.patch_faces("rod")
+    owner = mesh.owner[rod]
+    length = np.linalg.norm(mesh.face_area[rod], axis=1) / mesh.lz
+    normal = mesh.face_area[rod, :2] / (length * mesh.lz)[:, None]
+    wall_dist = np.abs(((mesh.face_centre[rod, :2] - mesh.cell_xy[owner]) * normal).sum(1))
+    tau_w = NU * w[owner] / wall_dist
+    G = (tau_w * length).sum() / area.sum()
+    print(f"[field] {n} cells; flow from {flow_t}; pressure gradient from wall shear = {G:.5f} "
+          f"(compare with the 'pressure gradient' in unit_cell/log.foamRun)")
+
+    wall_xy = mesh.face_centre[rod, :2] * (ROD_RADIUS / np.linalg.norm(mesh.face_centre[rod, :2], axis=1))[:, None]
+    zeros = np.zeros(len(rod))
+    add("flow", "wall", wall_xy[:, 0], wall_xy[:, 1], zeros, "tau_w", tau_w)
+    gap_face = np.argmin(np.minimum(np.abs(np.arctan2(wall_xy[:, 1], wall_xy[:, 0])),
+                                    np.abs(np.arctan2(wall_xy[:, 0], wall_xy[:, 1]))))
+    nusselt = []
+    if not thermal.exists():
+        print(f"[field] no thermal case at {thermal} - flow only.")
+    else:
+        thermal_t = latest_time(thermal)
+        for pr in PR_VALUES:
+            lam = NU / pr
+            for bc in BCS:
+                f = field_name(pr, bc)
+                T = read_internal_field(thermal_t / f, n)
+                Tb = (w * T * area).sum() / (w * area).sum()
+                if bc == "isoT":
+                    Tw = np.zeros(len(rod))
+                    flux = lam * (Tw - T[owner]) / wall_dist
+                    phi_m = (flux * length).sum() / length.sum()
+                    # steady state: all heat removed by the sink enters through the rod
+                    balance = phi_m / (SINK_ISO_T * area.sum() / length.sum()) - 1
+                    gauge = 0.0
+                else:
+                    Tw = read_patch_value(thermal_t / f, "rod", len(rod))
+                    phi_m, balance = WALL_HEAT_FLUX, 0.0
+                    gauge = Tw[gap_face]
+                Tw_m = (Tw * length).sum() / length.sum()
+                nu_cfd = phi_m * DH_DNS / (lam * (Tw_m - Tb))
+                nusselt.append((pr, bc, nu_cfd, balance))
+                add(f[2:], "cell", x, y, area, "T", T - gauge, pr, bc)
+                if bc == "isoFlux":
+                    add(f[2:], "wall", wall_xy[:, 0], wall_xy[:, 1], zeros, "T", Tw - gauge, pr, bc)
+                else:
+                    add(f[2:], "wall", wall_xy[:, 0], wall_xy[:, 1], zeros, "q_w", flux, pr, bc)
+        print(f"[field] temperatures from {thermal_t}")
+
+    field_csv.parent.mkdir(parents=True, exist_ok=True)
+    with open(field_csv, "w", newline="") as fh:
+        wr = csv.writer(fh)
+        wr.writerow(["case_id", "kind", "x", "y", "area", "quantity", "value", "Re", "Pr", "bc"])
+        wr.writerows(rows)
+    print(f"wrote {len(rows)} rows to {field_csv}")
+
+    if nusselt:
+        with open(nusselt_csv, "w", newline="") as fh:
+            wr = csv.writer(fh)
+            wr.writerow(["Pr", "bc", "Nu_CFD", "wall_heat_balance_error"])
+            wr.writerows(nusselt)
+        print(f"CFD Nusselt numbers (Dh = {DH_DNS} m, as in the DNS) -> {nusselt_csv}")
+        for pr, bc, nu_cfd, bal in nusselt:
+            note = f"   (heat balance error {bal:+.1e})" if bc == "isoT" else ""
+            print(f"    Pr={pr:<6g}{bc:8s} Nu = {nu_cfd:7.2f}{note}")
+
+
+def export_lines(unit_cell: Path, thermal: Path, out_csv: Path):
     rows = []
 
     flow_dir = unit_cell / "postProcessing" / "sampleFlow"
     if not flow_dir.exists():
-        raise SystemExit(f"{flow_dir} not found - has unit_cell/Allrun finished?")
+        print(f"{flow_dir} not found - skipping line profiles.")
+        return
     flow_fields = ["U", "k", "nut"]
     convergence_report(flow_dir, flow_fields, "flow")
     flow_sets = read_set_files(time_dirs(flow_dir)[-1], flow_fields)
@@ -225,15 +338,18 @@ def main(unit_cell: Path, thermal: Path, out_csv: Path):
         wr.writerow(["case_id", "line", "s", "xi", "x", "y", "quantity", "value", "Re", "Pr", "bc"])
         wr.writerows(rows)
     print(f"wrote {len(rows)} rows to {out_csv}")
-    print(f"(case constants: U_b={U_BULK}, nu={NU:.4e}, Dh_cell={DH_CELL:.6f})")
+
+
+def main(unit_cell: Path, thermal: Path, out_dir: Path):
+    print(f"(case constants: U_b={U_BULK}, nu={NU:.4e}, Dh_DNS={DH_DNS}, Dh_cell={DH_CELL:.6f})")
+    export_lines(unit_cell, thermal, out_dir / "cfd_profiles.csv")
+    export_field(unit_cell, thermal, out_dir / "cfd_field.csv", out_dir / "cfd_nusselt.csv")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--unit-cell", default=str(HERE / "unit_cell"))
     parser.add_argument("--thermal", default=str(HERE / "thermal"))
-    parser.add_argument(
-        "--out", default=str(HERE.parent.parent / "digitized_data" / "cfd_generated" / "cfd_profiles.csv")
-    )
+    parser.add_argument("--out-dir", default=str(HERE.parent.parent / "digitized_data" / "cfd_generated"))
     args = parser.parse_args()
-    main(Path(args.unit_cell), Path(args.thermal), Path(args.out))
+    main(Path(args.unit_cell), Path(args.thermal), Path(args.out_dir))

@@ -61,7 +61,7 @@ def main(cfg):
     geo = cfg["geometry"]
     r, a = geo["rod_radius"], geo["half_pitch"]
     dh = geo["dh_dns"]
-    nu = cfg["flow"]["u_bulk"] * geo["dh_cell"] / cfg["flow"]["re_values"][0]
+    nu = cfg["flow"]["u_bulk"] * geo["dh_dns"] / cfg["flow"]["re_values"][0]   # same as the CFD
     xi_gap, xi_centre = a - r, a - r + a
 
     df = pd.read_csv(cfg["paths"]["cfd_profiles"])

@@ -13,6 +13,9 @@ never feeds back into the flow.
 Wall conditions that can be built in exactly are: w = nu_t = k = 0 at the rod,
 and T = 0 at the rod for iso-temperature cases (multiplying by
 tanh(d/wall_layer), d = distance from the rod).
+
+Viscosity follows the 2023 DNS definition of the Reynolds number:
+nu = U_b * Dh_DNS / Re (Dh_DNS = 0.0712 m), the same as the CFD case.
 """
 import math
 
@@ -58,16 +61,19 @@ class RodBundlePINN(nn.Module):
         g, m, fl, th = cfg["geometry"], cfg["model"], cfg["flow"], cfg["thermal"]
         self.r = g["rod_radius"]
         self.a = g["half_pitch"]
-        self.dh = g["dh_cell"]
+        self.dh = g["dh_cell"]          # geometry: 4 * area / wetted perimeter of this cell
+        self.dh_ref = g["dh_dns"]       # Re and Nu definitions, as in the 2023 DNS
         self.u_bulk = fl["u_bulk"]
         self.pr_t = th["pr_turbulent"]
         self.q_wall = th["wall_heat_flux"]
         self.sink_iso_t = th["sink_iso_t"]
         self.sink_iso_flux = self.q_wall * 4.0 / self.dh
+        self.q_scale = self.sink_iso_t * self.dh / 4           # mean iso-temperature wall heat flux
         self.wall_layer = m["wall_layer"]
         self.nut_scale = m["nut_scale"]
         self.k_scale = m["k_scale"]
         self.g_scale = m["g_scale"]
+        self.tau_scale = self.g_scale * self.dh / 4          # typical wall shear stress / rho
         self.re_norm = _log_normaliser(fl["re_values"])
         self.pr_norm = _log_normaliser(th["pr_values"])
 
@@ -77,12 +83,23 @@ class RodBundlePINN(nn.Module):
         self.ff_t = FourierFeatures(m["fourier_features"], m["fourier_scale"], seed=1)
         n_wall = len(self.wall_scales) + 1
         self.momentum_net = mlp(self.ff_m.out_dim + n_wall + 1, m["momentum_hidden"], 3)
-        self.thermal_net = mlp(self.ff_t.out_dim + n_wall + 3, m["thermal_hidden"], 1)
+        # One output per trained (Pr, wall BC) case: much easier to fit than a
+        # single output conditioned on Pr. Predictions exist only at trained Pr.
+        self.case_pr = sorted(th["pr_values"])
+        self.thermal_net = mlp(self.ff_t.out_dim + n_wall + 1, m["thermal_hidden"], 2 * len(self.case_pr))
         self.g_net = mlp(1, [16], 1)
+
+        # Temperature scale per (Pr, wall BC), so every case's network output is
+        # O(1). Starts from a physics estimate; train.py replaces it with the
+        # range of the CFD data (saved with the model).
+        prs = sorted(th["pr_values"])
+        self.register_buffer("t_log_pr", torch.log(torch.tensor(prs, dtype=torch.float32)))
+        est = [[self._t_estimate(p, s) for s in (self.sink_iso_t, self.sink_iso_flux)] for p in prs]
+        self.register_buffer("t_scale_table", torch.tensor(est, dtype=torch.float32))
 
     # ---- helpers -----------------------------------------------------------
     def nu(self, re):
-        return self.u_bulk * self.dh / re
+        return self.u_bulk * self.dh_ref / re
 
     def wall_distance(self, x, y):
         return torch.sqrt(x**2 + y**2) - self.r
@@ -95,11 +112,29 @@ class RodBundlePINN(nn.Module):
     def sink(self, bc):
         return torch.where(bc > 0.5, torch.full_like(bc, self.sink_iso_flux), torch.full_like(bc, self.sink_iso_t))
 
+    def _t_estimate(self, pr, sink, re=9800.0):
+        nu = self.u_bulk * self.dh_ref / re
+        return sink * self.dh**2 / (nu / pr + 20.0 * nu / self.pr_t)
+
+    def set_temperature_scales(self, table):
+        """table: (n_pr, 2) tensor, columns iso-temperature / iso-flux, rows in sorted-Pr order."""
+        self.t_scale_table.copy_(torch.as_tensor(table, dtype=torch.float32))
+
     def t_ref(self, re, pr, bc):
-        """Temperature scale S*Dh^2/alpha_ref, so the network output is O(1)."""
-        nu = self.nu(re)
-        alpha_ref = nu / pr + 20.0 * nu / self.pr_t
-        return self.sink(bc) * self.dh**2 / alpha_ref
+        """Temperature scale for (Pr, BC); log-log interpolation between trained Pr."""
+        lp = torch.log(pr)
+        k = self.t_log_pr.numel()
+        table = torch.log(self.t_scale_table)
+        if k == 1:
+            logs = table[0].expand(lp.shape[0], 2)
+        else:
+            lp = lp.clamp(self.t_log_pr[0], self.t_log_pr[-1])
+            hi = torch.searchsorted(self.t_log_pr, lp.squeeze(1).contiguous()).clamp(1, k - 1)
+            lo = hi - 1
+            wgt = ((lp.squeeze(1) - self.t_log_pr[lo]) / (self.t_log_pr[hi] - self.t_log_pr[lo])).unsqueeze(1)
+            logs = (1 - wgt) * table[lo] + wgt * table[hi]
+        scale = torch.exp(torch.where(bc > 0.5, logs[:, 1:2], logs[:, 0:1]))
+        return scale
 
     def _xy(self, x, y):
         return torch.cat([x / self.a, y / self.a], dim=-1)
@@ -126,12 +161,18 @@ class RodBundlePINN(nn.Module):
     def pressure_gradient(self, re):
         return F.softplus(self.g_net(self.re_norm(re))) * self.g_scale
 
+    def case_index(self, pr, bc):
+        """Column of the thermal network for each (Pr, BC); Pr must be a trained value."""
+        prs = self.t_log_pr.exp()
+        i = torch.argmin(torch.abs(torch.log(pr) - torch.log(prs).unsqueeze(0)), dim=1, keepdim=True)
+        if not torch.allclose(prs[i.squeeze(1)], pr.squeeze(1), rtol=1e-3):
+            raise ValueError(f"temperature is only available at the trained Pr values {self.case_pr}")
+        return 2 * i + (bc > 0.5).long()
+
     def temperature(self, x, y, re, pr, bc):
         """bc: 0 = iso-temperature (T=0 at rod, built in), 1 = iso-flux."""
-        feats = torch.cat(
-            [self.ff_t(self._xy(x, y)), self._wall_features(x, y), self.re_norm(re), self.pr_norm(pr), bc], dim=-1
-        )
-        theta = self.thermal_net(feats)
+        feats = torch.cat([self.ff_t(self._xy(x, y)), self._wall_features(x, y), self.re_norm(re)], dim=-1)
+        theta = torch.gather(self.thermal_net(feats), 1, self.case_index(pr, bc))
         f = self.wall_factor(x, y)
         theta = torch.where(bc > 0.5, theta, f * theta)
         return theta * self.t_ref(re, pr, bc)

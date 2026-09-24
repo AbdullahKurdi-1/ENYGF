@@ -15,7 +15,8 @@ import yaml
 
 ML_DIR = Path(__file__).resolve().parent.parent
 REPO = ML_DIR.parent
-R, A, NU = 0.07, 0.0775, 8.0099e-6
+R, A, NU = 0.07, 0.0775, 0.0712 / 9800
+PRS = (0.025, 1.0, 2.0, 7.0)
 
 
 def fake_cfd_profiles(path):
@@ -31,6 +32,35 @@ def fake_cfd_profiles(path):
     cols = ["case_id", "line", "s", "xi", "x", "y", "quantity", "value", "Re", "Pr", "bc"]
     path.parent.mkdir(parents=True)
     pd.DataFrame(rows, columns=cols).to_csv(path, index=False)
+
+
+def fake_cfd_field(folder):
+    """Coarse fake 'mesh': cells on a polar grid, plus rod-surface rows."""
+    rows = []
+    add = lambda *r: rows.append(r)
+    for i in range(12):
+        phi = (i + 0.5) / 12 * math.pi / 2
+        rho_max = A / max(math.cos(phi), math.sin(phi))
+        for j in range(10):
+            d = (rho_max - R) * ((j + 0.5) / 10) ** 2
+            x, y = (R + d) * math.cos(phi), (R + d) * math.sin(phi)
+            f = 1 - math.exp(-d / 0.002)
+            add("flow", "cell", x, y, 1e-5, "w", 1.2 * f, 9800, "", "")
+            add("flow", "cell", x, y, 1e-5, "nut", 50 * NU * f**2, 9800, "", "")
+            add("flow", "cell", x, y, 1e-5, "k", 0.003 * f**2, 9800, "", "")
+            for pr in PRS:
+                add(f"Pr{pr:g}_isoT", "cell", x, y, 1e-5, "T", -5 * pr**0.3 * f, 9800, pr, "isoT")
+                add(f"Pr{pr:g}_isoFlux", "cell", x, y, 1e-5, "T", -500 * pr**0.3 * f, 9800, pr, "isoFlux")
+        x, y = R * math.cos(phi), R * math.sin(phi)
+        add("flow", "wall", x, y, 0.0, "tau_w", 1.2 * NU / 0.002, 9800, "", "")
+        for pr in PRS:
+            add(f"Pr{pr:g}_isoT", "wall", x, y, 0.0, "q_w", 0.02, 9800, pr, "isoT")
+            add(f"Pr{pr:g}_isoFlux", "wall", x, y, 0.0, "T", 0.0, 9800, pr, "isoFlux")
+    cols = ["case_id", "kind", "x", "y", "area", "quantity", "value", "Re", "Pr", "bc"]
+    pd.DataFrame(rows, columns=cols).to_csv(folder / "cfd_field.csv", index=False)
+    pd.DataFrame({"Pr": [p for p in PRS for _ in (0, 1)], "bc": ["isoT", "isoFlux"] * 4,
+                  "Nu_CFD": [10.0] * 8, "wall_heat_balance_error": [0.0] * 8}).to_csv(
+        folder / "cfd_nusselt.csv", index=False)
 
 
 def fake_dns_digitized(folder):
@@ -49,12 +79,16 @@ def test_train_and_evaluate_pipeline():
         tmp = Path(tmp)
         digitized = tmp / "digitized_data"
         fake_cfd_profiles(digitized / "cfd_generated" / "cfd_profiles.csv")
+        fake_cfd_field(digitized / "cfd_generated")
         fake_dns_digitized(digitized)
 
         cfg = yaml.safe_load((ML_DIR / "configs" / "default.yaml").read_text())
-        cfg["training"].update(epochs_momentum=2, epochs_joint=2, n_collocation=64, n_boundary=16, print_every=1)
+        cfg["training"].update(epochs_data=2, epochs_physics=2, ramp_epochs=1, n_collocation=64,
+                               n_boundary=16, batch_data=256, print_every=1)
         cfg["model"].update(momentum_hidden=[32, 32], thermal_hidden=[32, 32], fourier_features=8)
         cfg["paths"].update(
+            cfd_field=str(digitized / "cfd_generated" / "cfd_field.csv"),
+            cfd_nusselt=str(digitized / "cfd_generated" / "cfd_nusselt.csv"),
             cfd_profiles=str(digitized / "cfd_generated" / "cfd_profiles.csv"),
             digitized_dir=str(digitized),
             dns_nusselt=str(REPO / "paper_reference" / "table_dns_2023_nusselt.csv"),

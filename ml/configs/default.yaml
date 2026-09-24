@@ -17,7 +17,8 @@ thermal:
 
 model:
   fourier_features: 32
-  fourier_scale: 4.0        # coordinates are normalised to [0, 1] before this
+  fourier_scale: 1.0        # coordinates are normalised to [0, 1] before this. Keep low:
+                            # high frequencies add wiggles that wreck the PDE derivatives
   momentum_hidden: [128, 128, 128, 128]
   thermal_hidden: [128, 128, 128, 128]
   wall_layer: 0.002         # m, length scale of the hard no-slip / T=0 wall factor
@@ -27,32 +28,36 @@ model:
   g_scale: 0.2              # m/s2, typical driving pressure gradient 4*u_tau^2/Dh
 
 training:
-  epochs_momentum: 2000     # phase 1: flow only
-  epochs_joint: 4000        # phase 2: flow + temperature
+  epochs_data: 3000         # phase 1: fit the CFD data (+ bulk velocity, symmetry, gauge)
+  epochs_physics: 3000      # phase 2: + PDE residuals and wall heat flux
+  ramp_epochs: 500          # phase 2 terms are ramped in linearly over this many epochs
   lr: 1.0e-3
-  lr_decay_step: 1000
-  lr_decay_gamma: 0.7
+  lr_final_fraction: 0.02   # cosine decay to lr * this
+  batch_data: 4096          # data points per quantity per epoch (random mini-batch)
+  holdout_fraction: 0.2     # cells never used in training, to measure the test error
   n_collocation: 2048
   n_boundary: 512
-  print_every: 100
+  print_every: 250
   seed: 0
-  # Divide each loss term by its own running average so terms with very
-  # different magnitudes (PDE residuals vs. data) all get optimised.
-  adaptive_loss_normalisation: true
   loss_weights:
     data_w: 1.0
     data_nut: 1.0
-    data_k: 0.1
+    data_k: 0.3
     data_T: 1.0
-    pde_momentum: 1.0
-    pde_energy: 1.0
-    bulk_velocity: 10.0
-    symmetry: 1.0
-    wall_heat_flux: 1.0
+    data_tau_w: 1.0           # wall shear stress per rod face
+    data_q_w: 1.0             # iso-temperature wall heat flux per rod face
+    bulk_velocity: 1.0
+    symmetry: 0.1
     gauge: 1.0
+    pde_momentum: 1.0e-3
+    wall_shear_balance: 1.0e-2
+    pde_energy: 3.0e-4
+    wall_heat_flux: 0.1
 
 paths:
+  cfd_field: ../digitized_data/cfd_generated/cfd_field.csv
   cfd_profiles: ../digitized_data/cfd_generated/cfd_profiles.csv
+  cfd_nusselt: ../digitized_data/cfd_generated/cfd_nusselt.csv
   digitized_dir: ../digitized_data
   dns_nusselt: ../paper_reference/table_dns_2023_nusselt.csv
   checkpoint: outputs/pinn_checkpoint.pt

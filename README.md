@@ -17,12 +17,18 @@ No public full-field dataset exists for this case, so:
 
 1. **Training data** comes from our own lightweight CFD: an OpenFOAM v13
    steady RANS (k-omega SST) of the quarter unit cell, with 8 passive-scalar
-   temperature fields (Pr = 0.025/1/2/7 x iso-temperature/iso-flux). Set up
-   with the same normalisation, wall BCs and heat sinks as the DNS.
+   temperature fields (Pr = 0.025/1/2/7 x iso-temperature/iso-flux). Same
+   normalisation, Reynolds-number definition, wall BCs and heat sinks as the
+   DNS. Every mesh cell is exported (plus wall shear and wall heat flux on the
+   rod); 20% of the cells are held out to measure the PINN's test error.
 2. **Validation data** comes from the DNS and is **never used in training**:
    its Nusselt numbers (Table 1, exact values) and, once digitized, its
    wall shear, near-wall velocity (U+ vs r+), wall heat flux and temperature
    profiles.
+
+Three levels of comparison, kept separate in every result table:
+PINN vs. the CFD it learned from (the machine-learning error), CFD vs. DNS
+(the RANS model error), and PINN vs. DNS (the total).
 
 ## Pipeline
 
@@ -31,7 +37,8 @@ No public full-field dataset exists for this case, so:
 cd cfd/openfoam/unit_cell && ./Allrun && cd ..
 python3 generate_thermal_case.py
 cd thermal && ./Allrun && cd ..
-python3 extract_profiles.py          # -> digitized_data/cfd_generated/cfd_profiles.csv
+python3 extract_profiles.py          # -> digitized_data/cfd_generated/: cfd_field.csv,
+                                     #    cfd_nusselt.csv (CFD's own Nu), cfd_profiles.csv
 
 # 2. Digitize DNS figures (optional but recommended) - digitized_data/README.md
 
@@ -39,7 +46,7 @@ python3 extract_profiles.py          # -> digitized_data/cfd_generated/cfd_profi
 #    or the same code from the terminal:
 cd ../../ml
 python3 src/compare_cfd_to_papers.py # optional: CFD vs. key values read from both papers
-python3 src/train.py                 # ~6000 epochs, ~30 min on a laptop CPU
+python3 src/train.py                 # 6000 epochs, roughly 30-60 min on a laptop CPU
 python3 src/evaluate.py              # CFD fit + DNS comparison, plots in ml/outputs/plots/
 ```
 
@@ -50,17 +57,21 @@ nu = Dh/Re, rho*cp = 1.
 
 - **Flow network** -> axial velocity w, eddy viscosity nu_t, TKE k; plus a
   learned driving pressure gradient G(Re). Axial RANS momentum
-  0 = G + div((nu + nu_t) grad w), with the bulk velocity held at U_b. The
-  eddy viscosity is supervised directly by the CFD's nu_t: without it the
-  momentum equation alone cannot pin it down.
-- **Thermal network** -> T per (Pr, wall BC). Energy
+  0 = G + div((nu + nu_t) grad w), with the bulk velocity held at U_b and the
+  overall force balance G * area = wall shear * rod perimeter.
+- **Thermal network** -> one output per (Pr, wall BC) case. Energy
   0 = div((nu/Pr + nu_t/Pr_t) grad T) - S, with the DNS's uniform heat sinks.
   One-way coupled: temperature never trains the flow network.
 - Exact wall conditions built into the network (w = nu_t = k = 0 and
   iso-temperature T = 0 at the rod); symmetry planes, iso-flux wall heat
   flux and bulk velocity enforced as losses. Multi-scale wall-distance input
-  features and self-normalising loss weights address the usual PINN
-  convergence problem of very thin near-wall layers.
+  features handle the very thin near-wall layers.
+- **Two-phase training**: fit the CFD data first, then ramp in the PDE
+  residuals. Switching the PDEs on from a random start lets the energy
+  residual drive every temperature to the trivial T = 0 solution. Measured on
+  a copy of the CFD case: without the physics phase the learned pressure
+  gradient is ~35% off and the iso-flux Nusselt numbers are meaningless; with
+  it both match the CFD.
 
 Tests: `cd ml && python3 -m pytest tests -q` - `test_physics.py` checks the
 PDE operators against hand-derived results; `test_smoke.py` runs the whole
@@ -79,8 +90,11 @@ State these in any write-up:
 - Linear eddy-viscosity closure (k-omega SST in the CFD, nu_t in the PINN):
   no secondary flow in the cross-section. Constant Pr_t = 0.9, known to be
   crude for liquid metals.
-- The Nusselt comparison uses the unit-cell Dh (0.0785 m) vs. the DNS's
-  whole-domain Dh (0.0712 m).
+- The DNS's Reynolds number and Nusselt numbers are defined with its
+  whole-domain Dh (0.0712 m); we use the same definitions (so the same
+  fluid viscosity), but our cell's bulk velocity is 1 by construction while
+  the DNS's central cell's local bulk velocity is not published.
+- The PINN predicts temperature only at the trained Prandtl numbers.
 - Pr = 7 has no DNS counterpart.
 - Single Reynolds number (9800) unless you add CFD runs at others
   (`ml/configs/default.yaml: flow.re_values`).

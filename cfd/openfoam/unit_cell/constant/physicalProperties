@@ -1,8 +1,9 @@
 /*--------------------------------*- C++ -*----------------------------------*\
-  2023 DNS normalisation: U_b = 1 m/s, rho = 1, so Re_h = U_b*Dh/nu fixes nu.
-  Quarter unit cell hydraulic diameter (4*flow area / wetted perimeter):
-      Dh = 4*(a^2 - pi*r^2/4)/(pi*r/2) = 0.078497 m
-  Re_h = 9800  ->  nu = Dh/Re_h = 8.0099e-06 m^2/s
+  2023 DNS normalisation: U_b = 1 m/s, rho = 1, and the DNS's definition of
+  the Reynolds number, Re_h = U_b*Dh/nu with its whole-domain Dh = 0.0712 m:
+      Re_h = 9800  ->  nu = 0.0712/9800 = 7.2653e-06 m^2/s
+  Same fluid, same bulk velocity, same geometry as the DNS's central unit
+  cell. (This cell's own Dh is 0.078497 m, so Re based on it is ~10800.)
   To run another Reynolds number, change nu only (U_b stays 1).
 \*---------------------------------------------------------------------------*/
 FoamFile
@@ -15,6 +16,6 @@ FoamFile
 
 viscosityModel  constant;
 
-nu              8.0099e-06;
+nu              7.2653061e-06;
 
 // ************************************************************************* //

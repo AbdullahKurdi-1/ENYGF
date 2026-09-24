@@ -14,7 +14,8 @@ DH_DNS = 0.0712                                     # 2023 DNS domain
 
 U_BULK = 1.0
 RE = 9800.0
-NU = U_BULK * DH_CELL / RE                          # 8.0099e-06
+# Same fluid and Re definition as the 2023 DNS: Re_h = U_b * Dh_DNS / nu.
+NU = U_BULK * DH_DNS / RE                           # 7.2653e-06
 
 PR_VALUES = [0.025, 1.0, 2.0, 7.0]
 PR_TURBULENT = 0.9

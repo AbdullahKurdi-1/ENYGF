@@ -1,8 +1,12 @@
 """Data loading.
 
-Training data: CFD line profiles written by cfd/openfoam/extract_profiles.py
-(digitized_data/cfd_generated/cfd_profiles.csv), in physical units with the
-2023 DNS normalisation (U_b = 1, rho*cp = 1).
+Training data, written by cfd/openfoam/extract_profiles.py into
+digitized_data/cfd_generated/ (physical units, 2023 DNS normalisation U_b = 1,
+rho*cp = 1):
+  cfd_field.csv     every mesh cell (preferred): w, nu_t, k and all 8 T fields
+  cfd_profiles.csv  the sampled lines only (older pipeline / plotting)
+A fixed random fraction of the cells is held out of training to measure the
+PINN's error on points it has never seen.
 
 Validation data: points digitized from the 2023 DNS paper's figures
 (digitized_data/dns_*.csv). These are deliberately NOT used for training -
@@ -42,6 +46,47 @@ def load_cfd_profiles(path, device):
             "pr": col(pr), "bc": col(bc), "value": col(g["value"]),
         }
     return out, df
+
+
+def _tensors(g, device):
+    col = lambda v: torch.tensor(np.asarray(v, dtype=np.float32), device=device).unsqueeze(1)
+    return {
+        "x": col(g["x"]), "y": col(g["y"]), "re": col(g["Re"]),
+        "pr": col(g["Pr"].fillna(1.0)), "bc": col(g["bc"].map(BC_CODE).fillna(0.0)),
+        "value": col(g["value"]),
+    }
+
+
+def load_cfd_field(path, device, holdout_fraction=0.2, seed=0):
+    """Returns (train, test, frame). train/test: {quantity: tensors}. The same
+    cells are held out for every quantity; wall rows always go to training."""
+    path = Path(path)
+    if not path.exists():
+        return {}, {}, None
+    df = pd.read_csv(path)
+    cells = df[df["kind"] == "cell"][["x", "y"]].drop_duplicates()
+    rng = np.random.default_rng(seed)
+    test_idx = rng.random(len(cells)) < holdout_fraction
+    test_keys = set(map(tuple, cells[test_idx].round(9).to_numpy()))
+    key = list(map(tuple, df[["x", "y"]].round(9).to_numpy()))
+    df["split"] = ["test" if (k in test_keys and kind == "cell") else "train" for k, kind in zip(key, df["kind"])]
+    train, test = {}, {}
+    for (q, split), g in df.groupby(["quantity", "split"]):
+        (train if split == "train" else test)[q] = _tensors(g, device)
+    return train, test, df
+
+
+def temperature_scales(df, pr_values):
+    """(n_pr, 2) array of the CFD temperature range per case, iso-T / iso-flux,
+    rows in sorted-Pr order - used to put every case on an O(1) scale."""
+    out = np.ones((len(pr_values), 2))
+    t = df[df["quantity"] == "T"]
+    for i, pr in enumerate(sorted(pr_values)):
+        for j, bc in enumerate(("isoT", "isoFlux")):
+            g = t[np.isclose(t["Pr"], pr) & (t["bc"] == bc)]["value"]
+            if len(g):
+                out[i, j] = max(float(g.max() - g.min()), 1e-12)
+    return out
 
 
 def load_dns_digitized(digitized_dir):

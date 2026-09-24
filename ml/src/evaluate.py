@@ -1,7 +1,9 @@
 """Evaluate a trained PINN.
 
-1. Fit to the CFD it was trained on (per line / quantity / case), with RMSE.
-2. Independent validation against the 2023 DNS (never used in training):
+1. Fit to the CFD: error on held-out cells (never trained on), and profiles
+   along the sampled lines.
+2. Nusselt numbers: PINN vs. the CFD it learned from vs. the 2023 DNS.
+3. Independent validation against the 2023 DNS (never used in training):
    - Nusselt numbers vs. the DNS Table 1 (no digitizing needed)
    - wall shear distribution (Fig. 6), velocity in wall units (Fig. 7),
      iso-temperature wall heat flux (Fig. 11a), iso-temperature profiles
@@ -21,7 +23,7 @@ import pandas as pd
 import torch
 import yaml
 
-from dataset import BC_CODE, load_cfd_profiles, load_dns_digitized
+from dataset import BC_CODE, load_cfd_field, load_cfd_profiles, load_dns_digitized
 from model import RodBundlePINN
 import physics as ph
 
@@ -53,6 +55,27 @@ def rmse(a, b):
 
 
 # ---- 1. CFD fit ----------------------------------------------------------------
+def evaluate_holdout(model, cfg, device):
+    """RMSE on the held-out cells, per quantity and temperature case."""
+    tr = cfg["training"]
+    _, test, df = load_cfd_field(cfg["paths"]["cfd_field"], device, tr.get("holdout_fraction", 0.2), tr["seed"])
+    if not test:
+        return None
+    rows = []
+    for q, d in test.items():
+        pred = predict(model, q, d["x"], d["y"], d["re"], d["pr"], d["bc"]).cpu().numpy().ravel()
+        val = d["value"].cpu().numpy().ravel()
+        keys = [("flow", np.ones(len(val), bool))] if q != "T" else [
+            (f"Pr={p:g} {bc}", (np.isclose(d["pr"].cpu().numpy().ravel(), p)) & (d["bc"].cpu().numpy().ravel() == BC_CODE[bc]))
+            for p in cfg["thermal"]["pr_values"] for bc in BCS]
+        for case, m in keys:
+            if m.any():
+                rng = val[m].max() - val[m].min()
+                e = rmse(pred[m], val[m])
+                rows.append({"quantity": q, "case": case, "n": int(m.sum()), "rmse": e, "rmse_rel": e / rng})
+    return pd.DataFrame(rows)
+
+
 def evaluate_cfd_fit(model, df, device, plots):
     rows = []
     lines = sorted(df["line"].unique())
@@ -111,21 +134,27 @@ def evaluate_cfd_fit(model, df, device, plots):
 def evaluate_nusselt(model, cfg, device, plots):
     re = float(cfg["flow"]["re_values"][0])
     dns = pd.read_csv(cfg["paths"]["dns_nusselt"]) if Path(cfg["paths"]["dns_nusselt"]).exists() else None
+    cfd_path = cfg["paths"].get("cfd_nusselt")
+    cfd = pd.read_csv(cfd_path) if cfd_path and Path(cfd_path).exists() else None
     rows = []
     for pr in cfg["thermal"]["pr_values"]:
         ref = dns[np.isclose(dns["Pr"], pr)] if dns is not None else None
         for bc in BCS:
             nu = ph.nusselt(model, re, pr, BC_CODE[bc], device)
             dns_val = float(ref[f"Nu_{bc}"].iloc[0]) if ref is not None and len(ref) else float("nan")
-            rows.append({"Pr": pr, "bc": bc, "Nu_PINN": nu, "Nu_DNS_2023": dns_val,
-                         "rel_error": (nu - dns_val) / dns_val if dns_val == dns_val else float("nan")})
+            c = cfd[np.isclose(cfd["Pr"], pr) & (cfd["bc"] == bc)] if cfd is not None else []
+            cfd_val = float(c["Nu_CFD"].iloc[0]) if len(c) else float("nan")
+            rows.append({"Pr": pr, "bc": bc, "Nu_PINN": nu, "Nu_CFD": cfd_val, "Nu_DNS_2023": dns_val,
+                         "PINN_vs_CFD": nu / cfd_val - 1, "CFD_vs_DNS": cfd_val / dns_val - 1,
+                         "PINN_vs_DNS": nu / dns_val - 1})
     table = pd.DataFrame(rows)
 
-    fig, ax = plt.subplots(figsize=(6, 3.5))
+    fig, ax = plt.subplots(figsize=(7, 3.5))
     labels = [f"Pr={r.Pr:g}\n{r.bc}" for r in table.itertuples()]
     xs = np.arange(len(table))
-    ax.bar(xs - 0.2, table["Nu_PINN"], 0.4, label="PINN")
-    ax.bar(xs + 0.2, table["Nu_DNS_2023"], 0.4, label="DNS (Mathur et al. 2023)")
+    ax.bar(xs - 0.27, table["Nu_PINN"], 0.27, label="PINN")
+    ax.bar(xs, table["Nu_CFD"], 0.27, label="CFD it learned from (RANS)")
+    ax.bar(xs + 0.27, table["Nu_DNS_2023"], 0.27, label="DNS (Mathur et al. 2023)")
     ax.set_xticks(xs, labels, fontsize=8)
     ax.set_ylabel("Nu")
     ax.legend()
@@ -267,18 +296,28 @@ def evaluate(cfg):
     re = float(cfg["flow"]["re_values"][0])
     pd.set_option("display.width", 140)
 
+    holdout = evaluate_holdout(model, cfg, device) if cfg["paths"].get("cfd_field") else None
+    if holdout is not None:
+        print("\n=== Error on held-out CFD cells, never used in training (rmse_rel = RMSE / range) ===")
+        print(holdout.to_string(index=False, float_format=lambda v: f"{v:.3g}"))
+
     _, df = load_cfd_profiles(cfg["paths"]["cfd_profiles"], device)
     if df is not None and not df.empty:
         fit = evaluate_cfd_fit(model, df, device, plots)
-        print("\n=== Fit to training CFD (rmse_rel = RMSE / max|CFD|) ===")
+        print("\n=== Along the sampled lines (rmse_rel = RMSE / max|CFD|) ===")
         print(fit.to_string(index=False, float_format=lambda v: f"{v:.3g}"))
     else:
-        print("No CFD profiles found - skipping CFD fit.")
+        fit = holdout
+        print("No CFD line profiles found - skipping line plots.")
 
     nu_table = evaluate_nusselt(model, cfg, device, plots)
-    print("\n=== Nusselt number vs. 2023 DNS Table 1 (independent - not used in training) ===")
-    print("Note: PINN Nu uses the unit-cell Dh (0.0785 m); the DNS domain's Dh is 0.0712 m.")
-    print(nu_table.to_string(index=False, float_format=lambda v: f"{v:.3g}"))
+    print("\n=== Nusselt number: PINN vs. CFD it learned from vs. 2023 DNS Table 1 ===")
+    print("All use Dh = 0.0712 m, as the DNS does. The DNS was never used in training.")
+    shown = nu_table.copy()
+    for c in ("PINN_vs_CFD", "CFD_vs_DNS", "PINN_vs_DNS"):
+        shown[c] = shown[c].map(lambda v: f"{v:+.1%}" if v == v else "-")
+    shown["Pr"] = shown["Pr"].map("{:g}".format)
+    print(shown.to_string(index=False, float_format=lambda v: f"{v:.2f}"))
     nu_table.to_csv(plots.parent / "nusselt_comparison.csv", index=False)
 
     digit = load_dns_digitized(cfg["paths"]["digitized_dir"])
@@ -298,7 +337,7 @@ def evaluate(cfg):
     else:
         print("\nNo digitized DNS figures found yet - see digitized_data/README.md.")
     print(f"\nPlots written to {plots}/")
-    return (fit if df is not None and not df.empty else None), nu_table, pd.DataFrame(results)
+    return fit, nu_table, pd.DataFrame(results)
 
 
 def main(cfg_path):
