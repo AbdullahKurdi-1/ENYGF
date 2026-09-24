@@ -29,7 +29,9 @@ REFERENCE = {
     "w_gap": ("axial velocity at narrow-gap centre [U_b]", 0.85, 0.55),
     "w_centre": ("axial velocity at subchannel centre [U_b]", 1.36, None),
     "tau_ratio": ("wall shear, gap (0 deg) / 45 deg", 0.82 / 1.19, None),
-    "ut_gap": ("friction velocity at gap wall / U_b", U_TAU_DNS * 0.82**0.5, 0.045),
+    # No 2018 value: its Fig. 12 gradient gives u_tau/U_b ~ 0.045, identical to
+    # its own rod-averaged Re_tau/Re (439/9800), so it can't be read as a gap value.
+    "ut_gap": ("friction velocity at gap wall / U_b", U_TAU_DNS * 0.82**0.5, None),
     "k_gap_wall": ("k, near-wall peak in the gap [m2/s2]", 3.15 * U_TAU_DNS**2, None),
     "k_gap": ("k at narrow-gap centre [m2/s2]", 2.48 * U_TAU_DNS**2, None),
     "k_mid": ("k at xi/Dh = 0.6 [m2/s2]", 2.43 * U_TAU_DNS**2, None),
