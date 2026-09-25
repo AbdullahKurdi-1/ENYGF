@@ -249,6 +249,11 @@ def export_field(unit_cell: Path, thermal: Path, field_csv: Path, nusselt_csv: P
                     gauge = 0.0
                 else:
                     Tw = read_patch_value(thermal_t / f, "rod", len(rod))
+                    if Tw is None:
+                        # OpenFOAM v13 writes only the gradient of a fixedGradient
+                        # patch; its wall value is T_cell + gradient * distance.
+                        grad = read_patch_value(thermal_t / f, "rod", len(rod), key="gradient")
+                        Tw = T[owner] + grad * wall_dist
                     phi_m, balance = WALL_HEAT_FLUX, 0.0
                     gauge = Tw[gap_face]
                 Tw_m = (Tw * length).sum() / length.sum()

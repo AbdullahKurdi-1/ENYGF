@@ -66,8 +66,9 @@ def read_internal_field(path, n_cells):
     return _parse_value(body, m.end(), n_cells)
 
 
-def read_patch_value(path, patch, n_faces):
-    """The 'value' entry of a patch (e.g. the wall temperature of a fixedGradient rod)."""
+def read_patch_value(path, patch, n_faces, key="value"):
+    """An entry of a patch, 'value' by default (e.g. the wall temperature of a
+    fixedGradient rod). Returns None if the patch has no such entry."""
     body = _body(path)
     m = re.search(r"\b" + re.escape(patch) + r"\s*\{", body[re.search(r"\bboundaryField\b", body).end():])
     start = re.search(r"\bboundaryField\b", body).end() + m.end()
@@ -77,7 +78,7 @@ def read_patch_value(path, patch, n_faces):
         depth -= body[i] == "}"
         i += 1
     block = body[start:i - 1]
-    v = re.search(r"\bvalue\b", block)
+    v = re.search(r"\b" + re.escape(key) + r"\b", block)
     if v is None:
         return None
     return _parse_value(block, v.end(), n_faces)
