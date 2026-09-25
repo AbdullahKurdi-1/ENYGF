@@ -98,9 +98,11 @@ def load_training_data(cfg, device):
     else:
         source = "lines"
     if source == "lines":
-        train, frame = load_cfd_profiles(cfg["paths"]["cfd_profiles"], device)
+        lines = tr.get("data_lines")
+        train, frame = load_cfd_profiles(cfg["paths"]["cfd_profiles"], device, lines)
         if train:
-            print(f"training on the line profiles only: {cfg['paths']['cfd_profiles']}")
+            print(f"training on the line profiles only ({', '.join(lines) if lines else 'all lines'}): "
+                  f"{cfg['paths']['cfd_profiles']}")
     return train, test, frame
 
 

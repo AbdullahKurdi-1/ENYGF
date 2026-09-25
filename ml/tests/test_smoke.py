@@ -4,6 +4,7 @@ about accuracy (that needs real CFD data and a full training run).
 
 Run: cd ml && python3 -m pytest tests/test_smoke.py -q
 """
+import json
 import math
 import subprocess
 import sys
@@ -117,6 +118,19 @@ def test_train_and_evaluate_pipeline():
                 "lines": {"data_source": "lines"}}
         table = experiments.run_all(cfg, runs, out_dir=str(tmp / "exp"))
         assert list(table["run"]) == list(runs)
+
+        # explainability on the trained model, and sensor importance from line-dropping runs
+        import matplotlib
+        matplotlib.use("Agg")
+        import xai
+        model = xai.load_trained(cfg)
+        assert len(xai.residual_maps(model, cfg)) == 5
+        assert len(xai.energy_budget(model, cfg)) == len(cfg["thermal"]["pr_values"])
+        sensor = {"lines PINN": {"data_source": "lines"},
+                  "lines PINN without seg1": {"data_source": "lines", "data_lines": ["seg2", "seg3", "line15"]}}
+        experiments.run_all(cfg, sensor, out_dir=str(tmp / "exp"))
+        results = [json.loads(p.read_text()) for p in (tmp / "exp").glob("*/result.json")]
+        assert len(xai.sensor_importance(results)) == 1
 
 
 if __name__ == "__main__":

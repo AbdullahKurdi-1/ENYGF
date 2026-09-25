@@ -18,5 +18,5 @@ cfd/openfoam/thermal/
 # CFD output data (regenerate with cfd/openfoam/extract_profiles.py)
 digitized_data/cfd_generated/
 
-# ML outputs
-ml/outputs/
+# ML outputs (incl. backups such as ml/outputs_baseline_100pct/)
+ml/outputs*/

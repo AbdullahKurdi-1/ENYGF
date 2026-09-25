@@ -28,12 +28,15 @@ DNS_FILES = {
 }
 
 
-def load_cfd_profiles(path, device):
-    """Returns {quantity: dict of (N, 1) tensors x, y, re, pr, bc, value} plus the raw frame."""
+def load_cfd_profiles(path, device, lines=None):
+    """Returns {quantity: dict of (N, 1) tensors x, y, re, pr, bc, value} plus the raw frame.
+    lines: optional list of line names to keep (e.g. ["seg1", "seg2"])."""
     path = Path(path)
     if not path.exists():
         return {}, None
     df = pd.read_csv(path)
+    if lines is not None:
+        df = df[df["line"].isin(lines)]
     if df.empty:
         return {}, df
     out = {}

@@ -77,6 +77,11 @@ nu = Dh/Re, rho*cp = 1.
   error (3 random seeds); with only the sampled lines it reconstructs the
   velocity field ~7x better, but both miss the Nusselt numbers by up to ~18%.
 
+- **Explainability** (`src/xai.py`, notebook Step 7-8): residual maps (where
+  the network breaks the equations), the energy budget (share of the heat
+  carried by turbulence vs conduction, from the network's own eddy viscosity)
+  and sensor importance (error growth when one measurement line is removed).
+
 Tests: `cd ml && python3 -m pytest tests -q` - `test_physics.py` checks the
 PDE operators against hand-derived results; `test_smoke.py` runs the whole
 pipeline on fake data.

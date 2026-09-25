@@ -87,6 +87,30 @@ as the DNS defines it) the plain network is fine when data is dense.
 Still to do: seeds for the lines-only and 10% rows; the same table on the
 student's own CFD data (notebook Step 6).
 
+### Explainability, first results (test copy, full-data PINN)
+
+Energy budget - average share of the heat flux carried by turbulence:
+
+| Pr    | near wall (<1 mm) | narrow gap | subchannel centre | bulk |
+|-------|-------------------|------------|-------------------|------|
+| 0.025 | 0.00              | 0.06       | 0.50              | 0.29 |
+| 1     | 0.06              | 0.63       | 0.98              | 0.89 |
+| 2     | 0.10              | 0.76       | 0.99              | 0.93 |
+| 7     | 0.22              | 0.91       | 1.00              | 0.98 |
+
+This is the model's own explanation of the CFD-vs-DNS pattern: for liquid
+metal the gap heat transport is 94% conduction, so the RANS gap-turbulence
+error barely matters (Nu within 2% of the DNS); for Pr >= 1 turbulence
+carries most of the heat even in the gap, so the missing gap mixing shows up
+(Nu 13-45% low).
+
+Residual maps - RMS residual relative to the driving term: momentum 0.13-0.21
+everywhere; energy 0.2-0.6 for Pr = 0.025, up to ~1 near the wall for Pr = 1
+and ~4.6 near the wall for Pr = 7. The thin near-wall thermal layer at high
+Pr is where the PINN is least physically consistent.
+
+Sensor importance: implemented (notebook Step 8), not yet run at full length.
+
 ## Explainability (XAI)
 
 Standard XAI tools (SHAP, LIME) are built for models whose inputs are
