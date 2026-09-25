@@ -39,9 +39,53 @@ Metrics per cell: held-out RMSE/range for w, nu_t, k, T (per case); learned
 dp/dz vs CFD; Nusselt PINN vs CFD (all 8 cases); PDE residual RMS.
 Repeat each run with 2-3 random seeds and report the spread.
 
-Expected (not yet tested): physics keeps accuracy as data shrinks while the
+Expected before testing: physics keeps accuracy as data shrinks while the
 plain NN degrades. If physics does not help at low data, that is a valid
 result and is reported as such.
+
+### First results (independent test copy of the CFD case, 25 Sep 2026)
+
+Held-out error = RMSE / range on the same 998 held-out cells for every run.
+Nu error = worst |PINN/CFD - 1| over the six DNS cases (Pr <= 2). dp/dz from
+each network's own wall shear (CFD: 0.1822). One seed unless stated.
+
+| Training data                | Model    | w      | nu_t   | k      | T      | worst Nu error | dp/dz  |
+|------------------------------|----------|--------|--------|--------|--------|----------------|--------|
+| 100% (3840 cells + wall)     | PINN     | 0.49%  | 1.1%   | 1.7%   | 1.4%   | 1.6%           | 0.1825 |
+|                              | plain NN | 0.17%  | 0.7%   | 1.3%   | 0.5%   | 1.3%           | 0.1820 |
+| 10% (480 cells, 8 wall)      | PINN     | 0.63%  | 1.1%   | 1.8%   | 1.3%   | 4.3%           | 0.1803 |
+|                              | plain NN | 0.20%  | 0.9%   | 1.3%   | 0.6%   | 1.7%           | 0.1813 |
+| 1% (48 cells, 1 wall), 3 seeds | PINN   | 1.1-1.5% | 3.6-8.5% | 4.5-10.8% | 1.6-2.5% | 2.0-8.8% (mean 5.2%) | 0.169-0.177 |
+|                              | plain NN | 1.7-2.4% | 4.1-20% | 6.3-8.3% | 1.9-3.4% | 10.6-33.7% (mean 18.4%) | 0.169-0.191 |
+| 4 lines only (no wall data)  | PINN     | 3.7%   | 13%    | 21%    | 9.7%   | 18%            | 0.147  |
+|                              | plain NN | 24.7%  | 40%    | 20%    | 16%    | 17.5%          | 0.121  |
+
+PDE residual (RMS): PINN 0.15-0.27 x G (momentum) and ~0.5 x S (energy) in
+every row; plain NN 1.8-9 x G and 7-15 x S.
+
+What it shows:
+
+- **Dense data: physics is not needed for accuracy.** The plain network fits
+  the CFD 2-3x more closely; the PINN's advantage is physical consistency
+  (equations satisfied ~10x better), not lower error.
+- **1% of the data: the PINN wins in every seed** on velocity, temperature
+  and the worst Nusselt error (mean 5% vs 18%). This is the regime the
+  research question is about.
+- **Lines only: the PINN reconstructs the flow ~7x better**, but neither
+  model gets the Nusselt numbers right (PINN under-predicts all by 12-18%):
+  four lines do not carry enough thermal information near the rod.
+- The crossover between "physics hurts slightly" and "physics helps clearly"
+  lies between 10% and 1% of the cells.
+
+Correction to an earlier claim: an early comparison said that without the
+physics phase "dp/dz is 36% off and the iso-flux Nusselt numbers are
+meaningless". That compared the plain network's untrained pressure-gradient
+parameter and computed iso-flux Nu from the network's own wall flux. With
+fair metrics (dp/dz from the wall shear; iso-flux Nu with the imposed flux,
+as the DNS defines it) the plain network is fine when data is dense.
+
+Still to do: seeds for the lines-only and 10% rows; the same table on the
+student's own CFD data (notebook Step 6).
 
 ## Explainability (XAI)
 

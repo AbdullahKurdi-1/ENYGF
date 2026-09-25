@@ -57,34 +57,51 @@ def _tensors(g, device):
     }
 
 
-def load_cfd_field(path, device, holdout_fraction=0.2, seed=0):
-    """Returns (train, test, frame). train/test: {quantity: tensors}. The same
-    cells are held out for every quantity; wall rows always go to training."""
+def load_cfd_field(path, device, holdout_fraction=0.2, seed=0, data_fraction=1.0):
+    """Returns (train, test, frame). train/test: {quantity: tensors}.
+
+    The same cells are held out for every quantity, and the held-out set does
+    not depend on data_fraction, so runs with different amounts of data are
+    tested on identical points. data_fraction < 1 keeps only that fraction of
+    all cell locations (and of the rod-surface locations) for training - the
+    sparse-measurement experiment; the rest is marked 'unused'."""
     path = Path(path)
     if not path.exists():
         return {}, {}, None
     df = pd.read_csv(path)
-    cells = df[df["kind"] == "cell"][["x", "y"]].drop_duplicates()
+    cells = df[df["kind"] == "cell"][["x", "y"]].drop_duplicates().round(9)
     rng = np.random.default_rng(seed)
     test_idx = rng.random(len(cells)) < holdout_fraction
-    test_keys = set(map(tuple, cells[test_idx].round(9).to_numpy()))
+    test_keys = set(map(tuple, cells[test_idx].to_numpy()))
+
+    pick = np.random.default_rng(seed + 1)
+    pool = cells[~test_idx].to_numpy()
+    n_keep = min(len(pool), int(round(data_fraction * len(cells))))
+    keep = set(map(tuple, pool[pick.choice(len(pool), n_keep, replace=False)])) if n_keep else set()
+    walls = df[df["kind"] == "wall"][["x", "y"]].drop_duplicates().round(9).to_numpy()
+    n_wall = int(round(data_fraction * len(walls)))
+    keep |= set(map(tuple, walls[pick.choice(len(walls), n_wall, replace=False)])) if n_wall else set()
+
     key = list(map(tuple, df[["x", "y"]].round(9).to_numpy()))
-    df["split"] = ["test" if (k in test_keys and kind == "cell") else "train" for k, kind in zip(key, df["kind"])]
+    df["split"] = ["test" if (k in test_keys and kind == "cell") else ("train" if k in keep else "unused")
+                   for k, kind in zip(key, df["kind"])]
     train, test = {}, {}
     for (q, split), g in df.groupby(["quantity", "split"]):
-        (train if split == "train" else test)[q] = _tensors(g, device)
+        if split != "unused":
+            (train if split == "train" else test)[q] = _tensors(g, device)
     return train, test, df
 
 
 def temperature_scales(df, pr_values):
     """(n_pr, 2) array of the CFD temperature range per case, iso-T / iso-flux,
-    rows in sorted-Pr order - used to put every case on an O(1) scale."""
-    out = np.ones((len(pr_values), 2))
+    rows in sorted-Pr order - used to put every case on an O(1) scale. Pass
+    only the training rows. NaN where a case has fewer than 2 points."""
+    out = np.full((len(pr_values), 2), np.nan)
     t = df[df["quantity"] == "T"]
     for i, pr in enumerate(sorted(pr_values)):
         for j, bc in enumerate(("isoT", "isoFlux")):
             g = t[np.isclose(t["Pr"], pr) & (t["bc"] == bc)]["value"]
-            if len(g):
+            if len(g) >= 2:
                 out[i, j] = max(float(g.max() - g.min()), 1e-12)
     return out
 

@@ -81,17 +81,27 @@ def test_errors(model, test):
 
 
 def load_training_data(cfg, device):
+    """Returns (train, test, training_frame). training.data_source chooses the
+    training data: 'field' (mesh cells, optionally thinned by data_fraction)
+    or 'lines' (the sampled line profiles only). Testing is always on the
+    same held-out cells of the field."""
     tr = cfg["training"]
     field = cfg["paths"].get("cfd_field")
+    source = tr.get("data_source", "field")
+    fraction = tr.get("data_fraction", 1.0)
+    test, frame = {}, None
     if field and Path(field).exists():
-        train, test, df = load_cfd_field(field, device, tr.get("holdout_fraction", 0.2), tr["seed"])
-        print(f"CFD field data: {field}")
+        train, test, df = load_cfd_field(field, device, tr.get("holdout_fraction", 0.2), tr["seed"],
+                                         fraction if source == "field" else 0.0)
+        frame = df[df["split"] == "train"]
+        print(f"CFD field data: {field}" + (f"  (data_fraction = {fraction:g})" if source == "field" else ""))
     else:
-        train, df = load_cfd_profiles(cfg["paths"]["cfd_profiles"], device)
-        test = {}
+        source = "lines"
+    if source == "lines":
+        train, frame = load_cfd_profiles(cfg["paths"]["cfd_profiles"], device)
         if train:
-            print(f"cfd_field.csv not found - training on the line profiles only: {cfg['paths']['cfd_profiles']}")
-    return train, test, df
+            print(f"training on the line profiles only: {cfg['paths']['cfd_profiles']}")
+    return train, test, frame
 
 
 def train(cfg):
@@ -124,6 +134,13 @@ def train(cfg):
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=total_epochs, eta_min=tr["lr"] * tr["lr_final_fraction"])
 
     n_c, n_b, n_d = tr["n_collocation"], tr["n_boundary"], tr.get("batch_data")
+    # use_physics: false gives the plain-NN baseline - data loss only, no
+    # equations and no constraints (bulk velocity, symmetry, gauge).
+    constraints = tr.get("use_physics", True)
+    if not constraints:
+        total_epochs = tr["epochs_data"] + tr["epochs_physics"]
+        tr = {**tr, "epochs_data": total_epochs, "epochs_physics": 0}
+        print("use_physics = false: plain neural network (data only) for", total_epochs, "epochs")
     history = []
     t0 = time.time()
 
@@ -133,13 +150,14 @@ def train(cfg):
         opt.zero_grad()
         terms = data_losses(model, data, n_d, gen)
 
-        xu, yu = ph.sample_interior(model, n_c, device)
-        terms["bulk_velocity"] = sum(ph.bulk_velocity_loss(model, xu, yu, r) for r in re_values) / len(re_values)
-        planes = ph.sample_symmetry(model, n_b, device)
-        terms["symmetry"] = ph.symmetry_loss(
-            model, planes, ph.conditions(re_values, n_b, device), ph.conditions(pr_values, n_b, device),
-            ph.conditions([0.0, 1.0], n_b, device), include_thermal=True)
-        terms["gauge"] = ph.gauge_loss(model, device, re_values, pr_values)
+        if constraints:
+            xu, yu = ph.sample_interior(model, n_c, device)
+            terms["bulk_velocity"] = sum(ph.bulk_velocity_loss(model, xu, yu, r) for r in re_values) / len(re_values)
+            planes = ph.sample_symmetry(model, n_b, device)
+            terms["symmetry"] = ph.symmetry_loss(
+                model, planes, ph.conditions(re_values, n_b, device), ph.conditions(pr_values, n_b, device),
+                ph.conditions([0.0, 1.0], n_b, device), include_thermal=True)
+            terms["gauge"] = ph.gauge_loss(model, device, re_values, pr_values)
 
         if physics:
             x, y = ph.sample_interior(model, n_c, device, wall_biased=True)

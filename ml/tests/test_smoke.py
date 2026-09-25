@@ -110,6 +110,14 @@ def test_train_and_evaluate_pipeline():
                          "dns_fig12a_temperature.png"):
             assert expected in plots, f"missing {expected}"
 
+        # sparse-data experiment helper: thinned data, lines only, and the plain-NN baseline
+        sys.path.insert(0, str(ML_DIR / "src"))
+        import experiments
+        runs = {"half PINN": {"data_fraction": 0.5}, "plain": {"use_physics": False},
+                "lines": {"data_source": "lines"}}
+        table = experiments.run_all(cfg, runs, out_dir=str(tmp / "exp"))
+        assert list(table["run"]) == list(runs)
+
 
 if __name__ == "__main__":
     test_train_and_evaluate_pipeline()

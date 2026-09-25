@@ -68,10 +68,14 @@ nu = Dh/Re, rho*cp = 1.
   features handle the very thin near-wall layers.
 - **Two-phase training**: fit the CFD data first, then ramp in the PDE
   residuals. Switching the PDEs on from a random start lets the energy
-  residual drive every temperature to the trivial T = 0 solution. Measured on
-  a copy of the CFD case: without the physics phase the learned pressure
-  gradient is ~35% off and the iso-flux Nusselt numbers are meaningless; with
-  it both match the CFD.
+  residual drive every temperature to the trivial T = 0 solution.
+- **What the physics buys** (sparse-data experiment, `src/experiments.py`,
+  results in `docs/research_plan.md`, measured on a copy of the CFD case):
+  with dense data a plain network fits the CFD 2-3x more closely, but its
+  fields violate the equations ~10x more; with 1% of the cells the PINN has
+  about half the plain network's error and a ~3x smaller worst-case Nusselt
+  error (3 random seeds); with only the sampled lines it reconstructs the
+  velocity field ~7x better, but both miss the Nusselt numbers by up to ~18%.
 
 Tests: `cd ml && python3 -m pytest tests -q` - `test_physics.py` checks the
 PDE operators against hand-derived results; `test_smoke.py` runs the whole

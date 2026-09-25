@@ -205,9 +205,21 @@ def bulk_temperature(model, re_value, pr, bc, n, device):
 def nusselt(model, re_value, pr, bc, device, n_bulk=50000, n_wall=400):
     """Nu = phi_m * Dh / (lambda * (T_w,m - T_b)), as in the 2023 DNS (their Eq. 4),
     with its Dh = 0.0712 m. Wall averages over 0-45 deg, which by symmetry
-    equals the DNS's -45..45."""
+    equals the DNS's -45..45. phi_m is the network's own wall heat flux for
+    iso-temperature, and the imposed flux q for iso-flux (as in the DNS and
+    the CFD Nusselt numbers)."""
     angles = torch.linspace(0, math.pi / 4, n_wall)
     Tw, flux = wall_temperature_data(model, re_value, pr, bc, angles, device)
     Tb = bulk_temperature(model, re_value, pr, bc, n_bulk, device)
     lam = model.u_bulk * model.dh_ref / re_value / pr
-    return float(flux.mean() * model.dh_ref / (lam * (Tw.mean() - Tb)))
+    phi_m = model.q_wall if bc > 0.5 else float(flux.mean())
+    return float(phi_m * model.dh_ref / (lam * (Tw.mean() - Tb)))
+
+
+def pressure_gradient_from_wall_shear(model, re_value, device, n=400):
+    """G from the network's own wall shear via the force balance G * A = tau_w * P.
+    Defined for any network, including one trained without physics."""
+    angles = torch.linspace(0, math.pi / 2, n)
+    tau = wall_shear(model, re_value, angles, device)
+    area = model.a**2 - math.pi * model.r**2 / 4
+    return float(tau.mean() * (math.pi * model.r / 2) / area)

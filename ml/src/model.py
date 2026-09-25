@@ -117,8 +117,10 @@ class RodBundlePINN(nn.Module):
         return sink * self.dh**2 / (nu / pr + 20.0 * nu / self.pr_t)
 
     def set_temperature_scales(self, table):
-        """table: (n_pr, 2) tensor, columns iso-temperature / iso-flux, rows in sorted-Pr order."""
-        self.t_scale_table.copy_(torch.as_tensor(table, dtype=torch.float32))
+        """table: (n_pr, 2), columns iso-temperature / iso-flux, rows in sorted-Pr
+        order. NaN entries keep the physics estimate."""
+        table = torch.as_tensor(table, dtype=torch.float32, device=self.t_scale_table.device)
+        self.t_scale_table.copy_(torch.where(torch.isnan(table), self.t_scale_table, table))
 
     def t_ref(self, re, pr, bc):
         """Temperature scale for (Pr, BC); log-log interpolation between trained Pr."""
