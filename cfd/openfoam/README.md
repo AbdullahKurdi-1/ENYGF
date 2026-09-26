@@ -72,6 +72,21 @@ cd ~/ENYGF/cfd/openfoam
 ./view_in_paraview.sh unit_cell -builtin   # if ParaView says the OpenFOAM reader is missing
 ```
 
+**If ParaView crashes on start** (`Loguru caught a signal: SIGSEGV`,
+`Segmentation fault`): the case was found and ParaView itself crashed - on
+WSL almost always its graphics (OpenGL) driver. Try in this order:
+
+```bash
+./view_in_paraview.sh unit_cell --software   # software OpenGL (slower, but works without the GPU driver)
+./view_in_paraview.sh unit_cell -builtin     # ParaView's own OpenFOAM reader instead of OpenFOAM's plugin
+./view_in_paraview.sh unit_cell --windows    # prints a path to open in ParaView installed on Windows
+```
+
+The Windows route is the most reliable (no Linux graphics driver involved): install ParaView for Windows from
+paraview.org, File -> Open the printed `\\wsl.localhost\...\unit_cell.foam`
+path, click Apply. Updating WSL (Windows PowerShell: `wsl --update`, then
+`wsl --shutdown`) often fixes the crash for the Linux ParaView too.
+
 (Equivalent by hand: `cd ~/ENYGF/cfd/openfoam/unit_cell && paraFoam`.)
 
 In ParaView: click **Apply**, pick the last time step (the "Last Frame"

@@ -20,3 +20,7 @@ digitized_data/cfd_generated/
 
 # ML outputs (incl. backups such as ml/outputs_baseline_100pct/)
 ml/outputs*/
+
+# ParaView case marker files (view_in_paraview.sh)
+*.foam
+*.OpenFOAM
