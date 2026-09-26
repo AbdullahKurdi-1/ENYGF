@@ -111,6 +111,66 @@ Pr is where the PINN is least physically consistent.
 
 Sensor importance: implemented (notebook Step 8), not yet run at full length.
 
+## Results on the student's own CFD data (26 Sep 2026) - the reference numbers
+
+These supersede the test-copy numbers above for the paper. Same held-out
+cells (998) for every run; Nu error = worst |PINN/CFD - 1| over the six DNS
+cases (Pr <= 2); dp/dz from each network's wall shear (CFD 0.1820).
+
+| Training data | Model | held-out w | held-out T | worst Nu error | dp/dz |
+|---|---|---|---|---|---|
+| 100% | PINN | 0.5% | 1.4% | **1.3%** | 0.1823 |
+| 100% | plain NN | **0.2%** | **0.5%** | 2.4% | 0.1818 |
+| 10% | PINN | 0.6% | 1.3% | 4.0% | 0.1801 |
+| 10% | plain NN | **0.2%** | **0.6%** | **2.5%** | 0.1811 |
+| 1%, 3 seeds | PINN | **1.1-1.5%** | **1.6-2.6%** | **1.8-9.5% (mean 5.4%)** | 0.169-0.177 |
+| 1%, 3 seeds | plain NN | 1.7-2.4% | 1.9-3.4% | 10.7-34.0% (mean 18.5%) | 0.169-0.191 |
+| 4 lines | PINN | **3.8%** | **9.8%** | 18.0% | 0.147 |
+| 4 lines | plain NN | 24.8% | 16.3% | 18.9% | 0.118 |
+
+Conclusions (they match the test copy):
+
+1. **Dense data (100%, 10%)**: the plain network reproduces the CFD fields
+   2-3x more closely; the PINN's fields satisfy the equations ~10x better.
+   At 100% the PINN has the better Nusselt number (1.3% vs 2.4%).
+2. **1% of the data (48 cells)**: the PINN wins in all three seeds on
+   velocity, temperature and Nusselt number (mean worst Nu error 5.4% vs
+   18.5%). **This is the answer to the research question.**
+3. **Lines only**: the PINN reconstructs the flow ~6.5x better (3.8% vs
+   24.8%) and the temperature 1.7x better, but neither gets Nu below ~18%:
+   the lines carry too little near-wall thermal information, and neither
+   model gets the pressure gradient right (-20% / -35%).
+4. The crossover lies between 10% and 1% of the cells: physics costs a
+   little fit accuracy when data is plentiful and pays off when it is scarce.
+
+Explainability on the student's full-data PINN (identical to the test copy
+to 2 decimals):
+
+- **Energy budget** - turbulent share of the heat flux, narrow gap / subchannel
+  centre: Pr 0.025: 0.06 / 0.50; Pr 1: 0.63 / 0.98; Pr 2: 0.76 / 0.99;
+  Pr 7: 0.90 / 1.00. Explains the CFD-vs-DNS pattern: liquid-metal gap heat
+  transport is 94% conduction, so the RANS gap-turbulence error barely
+  matters (Nu within 2% of DNS); for Pr >= 1 turbulence dominates even in the
+  gap, so the missing gap mixing shows (Nu 13-45% low).
+- **Residual maps** - RMS relative to the driving term: momentum 0.13-0.21
+  everywhere; energy 0.21-0.60 (Pr 0.025), 0.33-1.09 (Pr 1), 0.95-4.6
+  (Pr 7, worst in the near-wall layer). Trust is lowest in the thin thermal
+  wall layer at high Pr.
+- **Sensor importance** (lines-only PINN, one line removed, one seed):
+
+  | removed line | velocity error x | temperature error x | worst Nu error |
+  |---|---|---|---|
+  | seg1 (narrow gap) | 0.96 | **1.36** | 16.9% |
+  | seg2 (gap centreline to subchannel centre) | 1.01 | 1.00 | 15.9% |
+  | seg3 (subchannel centre to rod at 45 deg) | **2.03** | 1.28 | **29.2%** |
+  | line15 (wall-normal at 15 deg) | 1.23 | 0.94 | 24.9% |
+
+  seg3 is the most valuable measurement (velocity error doubles, Nu error
+  18% -> 29% without it): it crosses the fastest flow and the 45-deg wall
+  layer. seg1 (the gap) is the most valuable for temperature (the gap hot
+  spot). seg2 adds nothing once the others are present - redundant.
+  Differences below ~10% are within run-to-run noise (single seed).
+
 ## Explainability (XAI)
 
 Standard XAI tools (SHAP, LIME) are built for models whose inputs are
@@ -150,13 +210,18 @@ with the sparse-data runs; 4 costs 5x training time and is optional.
 
 ## Order of work
 
-1. Full-data PINN on the student's machine (baseline; in progress).
-2. Test sparse-data runs on the independent copy (check the idea works).
-3. Add `data_fraction` / sensor-selection settings and a notebook section;
-   run the table on the student's machine.
-4. XAI 1 and 2 on the best model; XAI 3 from the sparse runs; 4 if time.
-5. Mesh-refinement check of the CFD (needed for any CFD paper).
-6. Digitize DNS Figs 6, 7, 11a, 12a for independent validation.
+1. Done - full-data PINN on the student's machine (baseline).
+2. Done - sparse-data runs tested on the independent copy.
+3. Done - sparse-data settings and notebook Step 6; full table run on the
+   student's data (26 Sep).
+4. Done - XAI 1 (residual maps), 2 (energy budget), 3 (sensor importance).
+   Not done: 4 (uncertainty ensemble, optional).
+5. Open - extra seeds for the 10% and lines rows, and for sensor importance.
+6. Open - mesh-refinement check of the CFD (needed for any CFD paper).
+7. Open - digitize DNS Figs 6, 7, 11a, 12a for independent validation.
+8. Open - optional gap fix for nu_t (relative loss weighting), tested on the
+   copy first.
+9. Open - update the old project-plan PDF and professor docx.
 
 Optional later: reverse PINN (learn a nu_t correction from DNS data), only
 with a strict split - train on some DNS quantities, test on others.
