@@ -91,24 +91,33 @@ def score(model, cfg, device="cpu"):
     return out
 
 
-def run_one(cfg, name, overrides, out_dir):
+def effective_config(cfg, overrides):
     c = copy.deepcopy(cfg)
     overrides = dict(overrides)
     existing = overrides.pop("checkpoint", None)
     c["training"].update(overrides)
+    return c, existing
+
+
+def run_one(cfg, name, overrides, out_dir):
+    c, existing = effective_config(cfg, overrides)
     d = Path(out_dir) / slug(name)
     d.mkdir(parents=True, exist_ok=True)
-    print(f"\n===== {name}: {overrides or 'default settings'} =====")
+    print(f"\n===== {name}: {dict(overrides) or 'default settings'} =====")
     t0 = time.time()
-    if existing and Path(existing).exists():
+    if existing and Path(existing).exists() and trainer.checkpoint_matches({**c, "paths": {**c["paths"],
+                                                                                  "checkpoint": existing}}):
         from evaluate import load_model
         c["paths"]["checkpoint"] = str(existing)
         model = load_model(c, "cpu")
         print(f"scoring the already-trained model {existing} (no training)")
     else:
+        if existing:
+            print(f"{existing} is missing or was trained with other settings - training this row instead")
         c["paths"].update(checkpoint=str(d / "checkpoint.pt"), loss_history=str(d / "loss_history.csv"))
         model = trainer.train(c)
-    res = {"run": name, "minutes": (time.time() - t0) / 60, **score(model, c)}
+    res = {"run": name, "minutes": (time.time() - t0) / 60, "fingerprint": trainer.config_fingerprint(c),
+           **score(model, c)}
     (d / "result.json").write_text(json.dumps(res, indent=1))
     return res
 
@@ -172,9 +181,16 @@ def run_all(cfg, runs=None, out_dir="outputs/experiments", plot=False):
     results = []
     for name, overrides in (runs or RUNS).items():
         done = Path(out_dir) / slug(name) / "result.json"
-        results.append(json.loads(done.read_text()) if done.exists() else run_one(cfg, name, overrides, out_dir))
+        want = trainer.config_fingerprint(effective_config(cfg, overrides)[0])
+        old = json.loads(done.read_text()) if done.exists() else None
+        if old is not None and old.get("fingerprint") == want:
+            results.append(old)
+        else:
+            if old is not None:
+                print(f"{name}: saved result was made with other settings - re-running")
+            results.append(run_one(cfg, name, overrides, out_dir))
     table = summarise(results)
-    pd.DataFrame(results).drop(columns=["Nu_errors"]).to_csv(Path(out_dir) / "summary.csv", index=False)
+    pd.DataFrame(results).drop(columns=["Nu_errors"], errors="ignore").to_csv(Path(out_dir) / "summary.csv", index=False)
     if plot:
         plot_summary(results, Path(out_dir) / "summary.png")
     print("\n" + table.to_string(index=False))

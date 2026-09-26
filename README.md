@@ -13,6 +13,7 @@ See `paper_reference/` for what each paper does and does not provide.
 
 **Research question, plan and current results:** `docs/research_plan.md`.
 **Session-by-session record:** `docs/sessions/`.
+**CFD and PINN vs the DNS, with explanations:** `docs/dns_comparison.md`.
 
 ## Approach
 

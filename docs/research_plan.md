@@ -111,7 +111,12 @@ Pr is where the PINN is least physically consistent.
 
 Sensor importance: implemented (notebook Step 8), not yet run at full length.
 
-## Results on the student's own CFD data (26 Sep 2026) - the reference numbers
+## Results on the student's own CFD data (26 Sep 2026)
+
+Note (26 Sep, 2nd session): these were made before the nu_t loss fix; the model default
+changed, so the notebook re-trains everything and these numbers will be
+replaced by the next full run. Keep them as the "before" record.
+
 
 These supersede the test-copy numbers above for the paper. Same held-out
 cells (998) for every run; Nu error = worst |PINN/CFD - 1| over the six DNS
@@ -216,12 +221,19 @@ with the sparse-data runs; 4 costs 5x training time and is optional.
    student's data (26 Sep).
 4. Done - XAI 1 (residual maps), 2 (energy budget), 3 (sensor importance).
    Not done: 4 (uncertainty ensemble, optional).
-5. Open - extra seeds for the 10% and lines rows, and for sensor importance.
-6. Open - mesh-refinement check of the CFD (needed for any CFD paper).
-7. Open - digitize DNS Figs 6, 7, 11a, 12a for independent validation.
-8. Open - optional gap fix for nu_t (relative loss weighting), tested on the
-   copy first.
-9. Open - update the old project-plan PDF and professor docx.
+5. Done (code, 26 Sep, 2nd session) - extra seeds 1-2 for the 10%, 1%, lines and sensor
+   rows; sensor importance averaged over seeds. To run: student's machine.
+6. Done on the copy (26 Sep, 2nd session) - mesh-refinement study with GCI
+   (`docs/dns_comparison.md` section 2). To run: `cfd/openfoam/mesh_study.py`
+   on the student's machine.
+7. Done (26 Sep, 2nd session) - DNS Figs. 6, 7, 9a, 11a, 12a digitized reproducibly;
+   three-layer validation (CFD vs DNS, PINN vs CFD, PINN vs DNS) in
+   `ml/src/validation.py`; explanations in `docs/dns_comparison.md`.
+8. Done (26 Sep, 2nd session) - nu_t gap fix: data error relative to nu + nu_t (gap-centre
+   nu_t error +79% -> +13% on the copy). Requires retraining everything.
+9. Open - student reruns the notebook (all steps, ~2 nights) with the new
+   default and seeds; then the final tables replace the 26 Sep numbers.
+10. Open - update the old project-plan PDF and professor docx; paper draft.
 
 Optional later: reverse PINN (learn a nu_t correction from DNS data), only
 with a strict split - train on some DNS quantities, test on others.

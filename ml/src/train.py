@@ -16,7 +16,10 @@ Usage:
     cd ml && python3 src/train.py --config configs/default.yaml
 """
 import argparse
+import copy
 import csv
+import hashlib
+import json
 import time
 from pathlib import Path
 
@@ -85,6 +88,24 @@ def test_errors(model, test):
         err = ((pred - d["value"]) / model.t_ref(d["re"], d["pr"], d["bc"])) ** 2
         out["T"] = float(err.mean().sqrt())
     return out
+
+
+def config_fingerprint(cfg):
+    """Short hash of every setting that changes the trained model (not the
+    printing interval or file paths). Saved with each model and experiment
+    result, so outdated results are recognised and re-run, never reused."""
+    keep = {k: copy.deepcopy(cfg[k]) for k in ("geometry", "flow", "thermal", "model", "training")}
+    keep["training"].pop("print_every", None)
+    return hashlib.sha1(json.dumps(keep, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def checkpoint_matches(cfg):
+    """True if cfg's checkpoint exists and was trained with exactly these settings."""
+    path = Path(cfg["paths"]["checkpoint"])
+    if not path.exists():
+        return False
+    saved = torch.load(path, map_location="cpu").get("fingerprint")
+    return saved == config_fingerprint(cfg)
 
 
 def load_training_data(cfg, device):
@@ -207,7 +228,7 @@ def train(cfg):
 
     ckpt = Path(cfg["paths"]["checkpoint"])
     ckpt.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"model_state": model.state_dict(), "config": cfg}, ckpt)
+    torch.save({"model_state": model.state_dict(), "config": cfg, "fingerprint": config_fingerprint(cfg)}, ckpt)
     hist_path = Path(cfg["paths"]["loss_history"])
     keys = sorted({k for row in history for k in row}, key=lambda k: (k not in ("epoch", "phase", "total"), k))
     with open(hist_path, "w", newline="") as fh:

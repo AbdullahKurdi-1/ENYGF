@@ -35,6 +35,9 @@ training:
   lr_final_fraction: 0.02   # cosine decay to lr * this
   batch_data: 4096          # data points per quantity per epoch (random mini-batch)
   holdout_fraction: 0.2     # cells never used in training, to measure the test error
+  nut_error: effective_viscosity   # nu_t data error relative to nu + nu_t (the viscosity the
+                            # equations use); "global" = relative to nut_scale. Tested on the
+                            # CFD copy: gap-centre nu_t error +79% -> +13%, nothing else worse.
   n_collocation: 2048
   n_boundary: 512
   print_every: 250

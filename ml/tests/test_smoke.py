@@ -116,10 +116,21 @@ def test_train_and_evaluate_pipeline():
         # sparse-data experiment helper: thinned data, lines only, and the plain-NN baseline
         sys.path.insert(0, str(ML_DIR / "src"))
         import experiments
+        from train import config_fingerprint as trainer_fp
         runs = {"half PINN": {"data_fraction": 0.5}, "plain": {"use_physics": False},
                 "lines": {"data_source": "lines"}}
         table = experiments.run_all(cfg, runs, out_dir=str(tmp / "exp"))
         assert list(table["run"]) == list(runs)
+        # saved results are reused only while the settings are unchanged
+        stamp = lambda: json.loads((tmp / "exp" / "plain" / "result.json").read_text())["minutes"]
+        first = stamp()
+        experiments.run_all(cfg, {"plain": runs["plain"]}, out_dir=str(tmp / "exp"))
+        assert stamp() == first, "unchanged settings must reuse the saved result"
+        changed = {**cfg, "training": {**cfg["training"], "lr": cfg["training"]["lr"] * 0.5}}
+        experiments.run_all(changed, {"plain": runs["plain"]}, out_dir=str(tmp / "exp"))
+        new = json.loads((tmp / "exp" / "plain" / "result.json").read_text())
+        assert new["fingerprint"] == trainer_fp(experiments.effective_config(changed, runs["plain"])[0]), \
+            "changed settings must re-run"
 
         # explainability on the trained model, and sensor importance from line-dropping runs
         import matplotlib
