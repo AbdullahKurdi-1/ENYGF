@@ -89,6 +89,16 @@ path, click Apply. Updating WSL (Windows PowerShell: `wsl --update`, then
 
 (Equivalent by hand: `cd ~/ENYGF/cfd/openfoam/unit_cell && paraFoam`.)
 
+**Seeing the whole rod / several rods.** The case is only a quarter of the
+cell around one rod (see "Geometry" above); the rest of the array is its
+mirror image, so it is not computed. To *show* it: select the case in the
+Pipeline Browser -> Filters -> Alphabetical -> **Reflect**, Plane = `X Min`,
+Apply; on that result Reflect again with `Y Min` (one whole rod in its square
+cell, 4x the cells); then `X Max` and `Y Max` give a 2 x 2 rod array with a
+full subchannel in the middle. The fields are mirrored too, so colouring by
+`U` or a temperature shows the full pattern. This is display only - the
+solution is unchanged.
+
 In ParaView: click **Apply**, pick the last time step (the "Last Frame"
 button), colour by a field (e.g. `U` - Z component, or `nut`). Useful filters:
 - **Plot Over Line** - e.g. from (0.070001, 0.000001, 0.0005) to
