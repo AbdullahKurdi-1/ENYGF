@@ -213,6 +213,53 @@ with the sparse-data runs; 4 costs 5x training time and is optional.
 - A negative result (physics does not help, an XAI method shows nothing) is
   reported, not dropped.
 
+## Decision (26 Sep 2026): move the production case to the Hooper / DNS domain
+
+Why (physical justification, per the rules): the DNS and the Hooper
+experiment use a six-rod domain with two subchannels in which only the
+central gap is open; the other gaps are closed by adiabatic gap walls. Our
+CFD so far is an infinite-array quarter cell (all gaps open), which matches
+the DNS only on the open-gap side (`docs/figures/domain_comparison.png`).
+No PINN of the Hooper case has been published (`docs/literature_search.md`),
+so modelling the actual domain makes the comparison with the DNS direct and
+the contribution well defined.
+
+New domain: one quarter of the DNS cross-section (the DNS's own "effective
+unit cell", grey in its Fig. 1a): a quarter of a central rod and a quarter of
+a corner rod, symmetry planes on the two fold axes (through the open gap and
+through the subchannel centres), no-slip adiabatic gap walls on the other two
+sides. Steady RANS can use this quarter because the mean flow of the full
+domain is symmetric about both axes (the DNS folds its statistics the same
+way). Checks it must pass: hydraulic diameter 4A/P_wetted = 0.0712 m and
+iso-flux sink = 50.96 W/m^3, both as stated by the DNS paper (hand check:
+0.07121 m and 50.96 W/m^3).
+
+Unchanged: the equations, fluid, Re, Pr values, thermal boundary conditions,
+normalisation, turbulence model, the PINN method (network, losses, training
+phases, wall-gradient data, force balance), the sparse-data experiment
+design, the plain-network comparison, the XAI tools, seeds, validation
+against the digitized DNS, the mesh-study method, the rules.
+
+Changes: mesh and boundary patches; geometry code in the CFD tools
+(`case_geometry.py`, extractor, thermal-case generator) and in the PINN
+(wall distance for two rods and two gap walls, sampling, symmetry planes,
+wall-shear balance including the gap walls, Nusselt averaging on the central
+rod as in the DNS, sampled lines); all runs repeated.
+
+The unit-cell results stay in the paper as the infinite-array reference:
+comparing the two domains isolates the effect of the gap walls.
+
+Timeline:
+- by 30 Sep (abstract): abstract names the Hooper/DNS case; results quoted
+  are the unit-cell ones, labelled as such, plus Hooper-domain CFD vs DNS if
+  ready.
+- October: Hooper-domain CFD built and tested on the copy, then run by the
+  student; mesh study on it; PINN geometry generalised and tested.
+- November: full notebook on the Hooper domain (sparse-data table, seeds,
+  XAI).
+- December: validation, unit cell vs Hooper comparison, figures.
+- January: write; full paper due 30 Jan 2027.
+
 ## Order of work
 
 1. Done - full-data PINN on the student's machine (baseline).
@@ -234,6 +281,10 @@ with the sparse-data runs; 4 costs 5x training time and is optional.
 9. Open - student reruns the notebook (all steps, ~2 nights) with the new
    default and seeds; then the final tables replace the 26 Sep numbers.
 10. Open - update the old project-plan PDF and professor docx; paper draft.
+11. Open - Hooper-domain CFD case (quarter of the DNS domain, gap walls),
+    tested on the copy first; then mesh study on it.
+12. Open - generalise the PINN geometry to the Hooper domain; rerun
+    everything on it; compare with the unit-cell results.
 
 Optional later: reverse PINN (learn a nu_t correction from DNS data), only
 with a strict split - train on some DNS quantities, test on others.
