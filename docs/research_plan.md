@@ -249,10 +249,33 @@ rod as in the DNS, sampled lines); all runs repeated.
 The unit-cell results stay in the paper as the infinite-array reference:
 comparing the two domains isolates the effect of the gap walls.
 
+Steady RANS on the quarter, not URANS on the full domain:
+- For steady RANS the quarter is exact: the full cross-section has the same
+  two mirror symmetries, so a steady solution on it is the quarter solution
+  mirrored - 4x the cost for the same answer.
+- URANS would need the full cross-section (the gap vortex street is
+  antisymmetric across the open gap, which a symmetry plane forbids) and a
+  3D domain long enough for the pulsations (the 2018 study used about 32 Dh).
+  Its cost in the 2018 study: meshes of 0.9-6.8 million points, ~0.3 million
+  iterations per case, 0.3 million core-hours for 22 cases (~14 000 core-
+  hours each, 130 processors) - months on an 8-core laptop.
+- Evidence it would not fix the main disagreement: that same URANS
+  (k-omega SST, full Hooper domain) showed the pulsations but still ~0.55 U_b
+  at the gap centre (its Fig. 11, as for our RANS).
+- The PINN reconstructs the time-averaged cross-section; a URANS would have
+  to be time-averaged over many pulsation cycles to train it.
+URANS is noted as future work (pulsation frequency vs the DNS's 3.7 Hz).
+
+No student runs until the Hooper case is ready: every code change for the new
+geometry changes the configuration fingerprints, so anything run now would be
+rerun anyway. The unit-cell reference is rerun once, with the final code,
+alongside the Hooper runs. The abstract uses the 26 Sep student results
+(unit cell, before the nu_t fix), labelled as preliminary.
+
 Timeline:
 - by 30 Sep (abstract): abstract names the Hooper/DNS case; results quoted
-  are the unit-cell ones, labelled as such, plus Hooper-domain CFD vs DNS if
-  ready.
+  are the unit-cell ones, labelled as preliminary, plus Hooper-domain CFD vs
+  DNS if ready.
 - October: Hooper-domain CFD built and tested on the copy, then run by the
   student; mesh study on it; PINN geometry generalised and tested.
 - November: full notebook on the Hooper domain (sparse-data table, seeds,
