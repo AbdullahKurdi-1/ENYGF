@@ -41,11 +41,16 @@ RUNS = {
     "lines plain NN": {"data_source": "lines", "use_physics": False},
 }
 
-# Extra random seeds for the 1% rows: with 48 training cells the result
-# depends on which cells were drawn, so report the spread.
+# Extra random seeds (1 and 2; seed 0 is the main run). The seed changes which
+# cells are drawn for training, the held-out cells, the network's starting
+# weights and the collocation points - the spread shows how robust each
+# result is. Most important for the sparse rows (1%, lines).
+SEEDS = (1, 2)
 SEED_RUNS = {
-    f"1% {model} (seed {s})": {"data_fraction": 0.01, "seed": s, **extra}
-    for s in (1, 2) for model, extra in (("PINN", {}), ("plain NN", {"use_physics": False}))
+    f"{data} {model} (seed {s})": {**base, "seed": s, **extra}
+    for data, base in (("10%", {"data_fraction": 0.1}), ("1%", {"data_fraction": 0.01}),
+                       ("lines", {"data_source": "lines"}))
+    for s in SEEDS for model, extra in (("PINN", {}), ("plain NN", {"use_physics": False}))
 }
 
 # Sensor importance: the lines-only PINN with one measurement line removed at
@@ -55,6 +60,11 @@ ALL_LINES = ["line15", "seg1", "seg2", "seg3"]
 SENSOR_RUNS = {
     f"lines PINN without {drop}": {"data_source": "lines", "data_lines": [l for l in ALL_LINES if l != drop]}
     for drop in ALL_LINES
+}
+SENSOR_SEED_RUNS = {
+    f"lines PINN without {drop} (seed {s})": {"data_source": "lines", "seed": s,
+                                              "data_lines": [l for l in ALL_LINES if l != drop]}
+    for drop in ALL_LINES for s in SEEDS
 }
 
 
@@ -73,7 +83,7 @@ def score(model, cfg, device="cpu"):
     cfd = pd.read_csv(cfg["paths"]["cfd_nusselt"])
     errs = {}
     for r in cfd.itertuples():
-        nu = ph.nusselt(model, re_value, float(r.Pr), BC_CODE[r.bc], device, n_bulk=20000)
+        nu = ph.nusselt(model, re_value, float(r.Pr), BC_CODE[r.bc], device)
         errs[f"Pr={r.Pr:g} {r.bc}"] = nu / r.Nu_CFD - 1
     out["Nu_err_max_Pr<=2"] = max(abs(v) for k, v in errs.items() if not k.startswith("Pr=7"))
     out["Nu_err_max_all"] = max(abs(v) for v in errs.values())

@@ -38,7 +38,7 @@ def _batch(d, n, gen):
     return {k: v[idx] for k, v in d.items()}
 
 
-def data_losses(model, data, batch=None, gen=None):
+def data_losses(model, data, batch=None, gen=None, nut_relative=False):
     """Mean squared error of each quantity, each on its own O(1) scale."""
     scales = {"w": model.u_bulk, "nut": model.nut_scale, "k": model.k_scale}
     losses = {}
@@ -46,7 +46,14 @@ def data_losses(model, data, batch=None, gen=None):
         if q in data:
             d = _batch(data[q], batch, gen)
             pred = model.momentum(d["x"], d["y"], d["re"])[idx]
-            losses[f"data_{q}"] = (((pred - d["value"]) / scales[q]) ** 2).mean()
+            scale = scales[q]
+            if q == "nut" and nut_relative:
+                # Error relative to the local effective viscosity nu + nu_t -
+                # the quantity the momentum and energy equations actually use.
+                # A fixed scale lets small but physically important values
+                # (the narrow gap, nu_t ~ 2e-5) go unfitted.
+                scale = model.nu(d["re"]) + d["value"].abs()
+            losses[f"data_{q}"] = (((pred - d["value"]) / scale) ** 2).mean()
     if "T" in data:
         d = _batch(data["T"], batch, gen)
         pred = model.temperature(d["x"], d["y"], d["re"], d["pr"], d["bc"])
@@ -150,7 +157,7 @@ def train(cfg):
         physics = epoch >= tr["epochs_data"]
         ramp = min(1.0, (epoch - tr["epochs_data"] + 1) / max(tr["ramp_epochs"], 1)) if physics else 0.0
         opt.zero_grad()
-        terms = data_losses(model, data, n_d, gen)
+        terms = data_losses(model, data, n_d, gen, tr.get("nut_error", "global") == "effective_viscosity")
 
         if constraints:
             xu, yu = ph.sample_interior(model, n_c, device)

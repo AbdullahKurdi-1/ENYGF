@@ -73,6 +73,9 @@ def fake_dns_digitized(folder):
         folder / "dns_fig11a_wall_heat_flux_isoT.csv", index=False)
     pd.DataFrame({"case_id": [1.0] * 3, "x": [0.05, 0.8, 1.6], "y": [0.3, 1.2, 0.5]}).to_csv(
         folder / "dns_fig12a_temperature_isoT.csv", index=False)
+    pd.DataFrame({"case_id": ["uu", "vv", "ww"] * 3, "x": [0.05] * 3 + [0.6] * 3 + [1.2] * 3,
+                  "y": [1, 0.5, 3, 1.2, 0.8, 2.7, 0.6, 0.6, 0.8]}).to_csv(
+        folder / "dns_fig9a_normal_stresses.csv", index=False)
 
 
 def test_train_and_evaluate_pipeline():
@@ -107,8 +110,7 @@ def test_train_and_evaluate_pipeline():
         subprocess.run([sys.executable, "src/evaluate.py", "--config", str(cfg_path)], check=True, cwd=ML_DIR)
         plots = {p.name for p in (tmp / "out" / "plots").glob("*.png")}
         for expected in ("cfd_fit_flow.png", "nusselt_vs_dns.png", "dns_fig6_wall_shear.png",
-                         "dns_fig7_velocity_wall_units.png", "dns_fig11a_wall_heat_flux.png",
-                         "dns_fig12a_temperature.png"):
+                         "dns_fig9a_tke.png", "dns_fig11a_wall_heat_flux.png", "dns_fig12a_temperature.png"):
             assert expected in plots, f"missing {expected}"
 
         # sparse-data experiment helper: thinned data, lines only, and the plain-NN baseline

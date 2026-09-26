@@ -25,9 +25,10 @@ No public full-field dataset exists for this case, so:
    DNS. Every mesh cell is exported (plus wall shear and wall heat flux on the
    rod); 20% of the cells are held out to measure the PINN's test error.
 2. **Validation data** comes from the DNS and is **never used in training**:
-   its Nusselt numbers (Table 1, exact values) and, once digitized, its
-   wall shear, near-wall velocity (U+ vs r+), wall heat flux and temperature
-   profiles.
+   its Nusselt numbers (Table 1, exact values) and its figures, digitized
+   reproducibly from the PDF (`digitized_data/digitize_dns_figures.py`):
+   wall shear (Fig. 6), U+ vs r+ (Fig. 7), turbulent kinetic energy (Fig. 9a),
+   wall heat flux (Fig. 11a) and excess temperature (Fig. 12a).
 
 Three levels of comparison, kept separate in every result table:
 PINN vs. the CFD it learned from (the machine-learning error), CFD vs. DNS
@@ -43,12 +44,13 @@ cd thermal && ./Allrun && cd ..
 python3 extract_profiles.py          # -> digitized_data/cfd_generated/: cfd_field.csv,
                                      #    cfd_nusselt.csv (CFD's own Nu), cfd_profiles.csv
 
-# 2. Digitize DNS figures (optional but recommended) - digitized_data/README.md
+# 2. DNS figures are already digitized (digitized_data/dns_*.csv); to redo it:
+#    python3 digitized_data/digitize_dns_figures.py <path to the 2023 DNS PDF>
 
 # 3. PINN - either the notebook (recommended: ml/notebooks/pinn_walkthrough.ipynb)
 #    or the same code from the terminal:
 cd ../../ml
-python3 src/compare_cfd_to_papers.py # optional: CFD vs. key values read from both papers
+python3 src/compare_cfd_to_papers.py # optional: CFD vs. DNS at the key points (digitized DNS data)
 python3 src/train.py                 # 6000 epochs, roughly 30-60 min on a laptop CPU
 python3 src/evaluate.py              # CFD fit + DNS comparison, plots in ml/outputs/plots/
 ```

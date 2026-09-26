@@ -3,12 +3,10 @@
 1. Fit to the CFD: error on held-out cells (never trained on), and profiles
    along the sampled lines.
 2. Nusselt numbers: PINN vs. the CFD it learned from vs. the 2023 DNS.
-3. Independent validation against the 2023 DNS (never used in training):
-   - Nusselt numbers vs. the DNS Table 1 (no digitizing needed)
-   - wall shear distribution (Fig. 6), velocity in wall units (Fig. 7),
-     iso-temperature wall heat flux (Fig. 11a), iso-temperature profiles
-     along the unit-cell boundary (Fig. 12a) - each only if you have
-     digitized it into digitized_data/ (see that folder's README).
+3. Independent validation against the 2023 DNS (never used in training),
+   CFD and PINN side by side (validation.py): wall shear (Fig. 6), U+(r+)
+   (Fig. 7), turbulent kinetic energy (Fig. 9a), iso-temperature wall heat
+   flux (Fig. 11a) and temperature along the unit-cell path (Fig. 12a).
 
 Usage:
     cd ml && python3 src/evaluate.py --config configs/default.yaml
@@ -23,7 +21,7 @@ import pandas as pd
 import torch
 import yaml
 
-from dataset import BC_CODE, load_cfd_field, load_cfd_profiles, load_dns_digitized
+from dataset import BC_CODE, load_cfd_field, load_cfd_profiles
 from model import RodBundlePINN
 import physics as ph
 
@@ -171,76 +169,12 @@ def wall_shear_distribution(model, re, device, n=181):
     return np.degrees(ang), tau / tau_m, tau
 
 
-def fold_angle(theta_deg):
-    return np.abs(np.asarray(theta_deg, dtype=float)) % 90.0
-
-
-def compare_fig6(model, digit, re, device, plots):
-    deg, ratio, _ = wall_shear_distribution(model, re, device)
-    pred_at = np.interp(fold_angle(digit["x"]), deg, ratio)
-    fig, ax = plt.subplots(figsize=(5, 3.5))
-    ax.plot(deg, ratio, "r-", label="PINN")
-    ax.plot(fold_angle(digit["x"]), digit["y"], "ko", ms=3, label="DNS Fig. 6")
-    ax.set_xlabel("angle from narrow gap [deg]")
-    ax.set_ylabel("tau_w / tau_w,m")
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(plots / "dns_fig6_wall_shear.png", dpi=130)
-    plt.close(fig)
-    return [{"figure": "6", "case": "all", "n": len(digit), "rmse": rmse(pred_at, digit["y"])}]
-
-
 def ray_points(model, angle_deg, n=400):
     phi = math.radians(angle_deg)
     rho_max = model.a / max(math.cos(phi), math.sin(phi))
     d = np.geomspace(1e-7, rho_max - model.r, n)
     rho = model.r + d
     return d, rho * math.cos(phi), rho * math.sin(phi)
-
-
-def compare_fig7(model, digit, re, device, plots):
-    out = []
-    fig, ax = plt.subplots(figsize=(5, 3.5))
-    for angle, g in digit.groupby(digit["case_id"].astype(float)):
-        d, x, y = ray_points(model, angle)
-        with torch.no_grad():
-            w, _, _ = model.momentum(col(x, device), col(y, device), torch.full((len(x), 1), re, device=device))
-        tau = ph.wall_shear(model, re, [math.radians(angle)], device).item()
-        u_tau = math.sqrt(max(tau, 1e-12))
-        nu = model.nu(torch.tensor(re)).item()
-        r_plus, u_plus = d * u_tau / nu, w.cpu().numpy().ravel() / u_tau
-        ax.semilogx(r_plus, u_plus, "-", label=f"PINN {angle:g} deg")
-        ax.semilogx(g["x"], g["y"], "o", ms=3, label=f"DNS {angle:g} deg")
-        pred_at = np.interp(np.log(g["x"]), np.log(r_plus), u_plus)
-        out.append({"figure": "7", "case": f"{angle:g} deg", "n": len(g), "rmse": rmse(pred_at, g["y"])})
-    ax.set_xlabel("r+")
-    ax.set_ylabel("U+")
-    ax.legend(fontsize=7)
-    fig.tight_layout()
-    fig.savefig(plots / "dns_fig7_velocity_wall_units.png", dpi=130)
-    plt.close(fig)
-    return out
-
-
-def compare_fig11a(model, digit, re, device, plots):
-    out = []
-    ang = np.linspace(0, math.pi / 2, 181)
-    fig, ax = plt.subplots(figsize=(5, 3.5))
-    for pr, g in digit.groupby(digit["case_id"].astype(float)):
-        _, flux = ph.wall_temperature_data(model, re, pr, 0.0, ang, device)
-        flux = flux.cpu().numpy().ravel()
-        ratio = flux / flux[ang <= math.pi / 4 + 1e-9].mean()
-        ax.plot(np.degrees(ang), ratio, "-", label=f"PINN Pr={pr:g}")
-        ax.plot(fold_angle(g["x"]), g["y"], "o", ms=3, label=f"DNS Pr={pr:g}")
-        pred_at = np.interp(fold_angle(g["x"]), np.degrees(ang), ratio)
-        out.append({"figure": "11a", "case": f"Pr={pr:g}", "n": len(g), "rmse": rmse(pred_at, g["y"])})
-    ax.set_xlabel("angle from narrow gap [deg]")
-    ax.set_ylabel("phi / phi_m (iso-temperature)")
-    ax.legend(fontsize=7)
-    fig.tight_layout()
-    fig.savefig(plots / "dns_fig11a_wall_heat_flux.png", dpi=130)
-    plt.close(fig)
-    return out
 
 
 def unit_cell_boundary_path(model, n_per_seg=200):
@@ -263,37 +197,12 @@ def unit_cell_boundary_path(model, n_per_seg=200):
     return x * scale, y * scale, np.concatenate(xis)
 
 
-def compare_fig12a(model, digit, re, dh_dns, device, plots):
-    out = []
-    x, y, xi = unit_cell_boundary_path(model)
-    fig, ax = plt.subplots(figsize=(5.5, 3.5))
-    for pr, g in digit.groupby(digit["case_id"].astype(float)):
-        n = len(x)
-        with torch.no_grad():
-            T = model.temperature(col(x, device), col(y, device), torch.full((n, 1), re, device=device),
-                                  torch.full((n, 1), pr, device=device), torch.zeros(n, 1, device=device))
-        Tb = ph.bulk_temperature(model, re, pr, 0.0, 50000, device)
-        prof = T.cpu().numpy().ravel() / Tb
-        ax.plot(xi / dh_dns, prof, "-", label=f"PINN Pr={pr:g}")
-        ax.plot(g["x"], g["y"], "o", ms=3, label=f"DNS Pr={pr:g}")
-        pred_at = np.interp(g["x"], xi / dh_dns, prof)
-        out.append({"figure": "12a", "case": f"Pr={pr:g}", "n": len(g), "rmse": rmse(pred_at, g["y"])})
-    ax.set_xlabel("xi / Dh (DNS Dh = %.4f m)" % dh_dns)
-    ax.set_ylabel("Theta / Theta_b (iso-temperature)")
-    ax.legend(fontsize=7)
-    fig.tight_layout()
-    fig.savefig(plots / "dns_fig12a_temperature.png", dpi=130)
-    plt.close(fig)
-    return out
-
-
 def evaluate(cfg):
     """Evaluate from a config dict; returns (cfd_fit, nusselt, dns_figures) tables. Also used by the notebook."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_model(cfg, device)
     plots = Path(cfg["paths"]["plots_dir"])
     plots.mkdir(parents=True, exist_ok=True)
-    re = float(cfg["flow"]["re_values"][0])
     pd.set_option("display.width", 140)
 
     holdout = evaluate_holdout(model, cfg, device) if cfg["paths"].get("cfd_field") else None
@@ -320,24 +229,12 @@ def evaluate(cfg):
     print(shown.to_string(index=False, float_format=lambda v: f"{v:.2f}"))
     nu_table.to_csv(plots.parent / "nusselt_comparison.csv", index=False)
 
-    digit = load_dns_digitized(cfg["paths"]["digitized_dir"])
-    results = []
-    if "fig6_wall_shear" in digit:
-        results += compare_fig6(model, digit["fig6_wall_shear"], re, device, plots)
-    if "fig7_velocity_wall_units" in digit:
-        results += compare_fig7(model, digit["fig7_velocity_wall_units"], re, device, plots)
-    if "fig11a_wall_heat_flux_isoT" in digit:
-        results += compare_fig11a(model, digit["fig11a_wall_heat_flux_isoT"], re, device, plots)
-    if "fig12a_temperature_isoT" in digit:
-        results += compare_fig12a(model, digit["fig12a_temperature_isoT"], re,
-                                  cfg["geometry"]["dh_dns"], device, plots)
-    if results:
-        print("\n=== Against digitized DNS figures (independent - not used in training) ===")
-        print(pd.DataFrame(results).to_string(index=False, float_format=lambda v: f"{v:.3g}"))
-    else:
-        print("\nNo digitized DNS figures found yet - see digitized_data/README.md.")
+    import validation
+    results = validation.validate(cfg, model, plots)
+    if results.empty:
+        print("\nNo digitized DNS figures found - see digitized_data/README.md.")
     print(f"\nPlots written to {plots}/")
-    return fit, nu_table, pd.DataFrame(results)
+    return fit, nu_table, results
 
 
 def main(cfg_path):

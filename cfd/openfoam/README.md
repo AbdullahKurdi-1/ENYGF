@@ -57,6 +57,53 @@ python3 extract_profiles.py       # -> digitized_data/cfd_generated/ (field, Nus
 - `foam_io.py` — small reader for OpenFOAM ASCII meshes and fields (no
   OpenFOAM installation needed to run the extractor).
 
+## Looking at the results in ParaView
+
+`paraFoam` has to be started from **inside** a case folder - it looks for
+`./constant`, and anywhere else it stops with
+`FATAL ERROR: Mesh constant does not exist`. The helper script does the
+`cd` for you:
+
+```bash
+cd ~/ENYGF/cfd/openfoam
+./view_in_paraview.sh                 # unit_cell: U, p, k, omega, nut
+./view_in_paraview.sh thermal         # the 8 temperature fields (T_Pr..._isoT / _isoFlux)
+./view_in_paraview.sh mesh_study/fine # a mesh-study case
+./view_in_paraview.sh unit_cell -builtin   # if ParaView says the OpenFOAM reader is missing
+```
+
+(Equivalent by hand: `cd ~/ENYGF/cfd/openfoam/unit_cell && paraFoam`.)
+
+In ParaView: click **Apply**, pick the last time step (the "Last Frame"
+button), colour by a field (e.g. `U` - Z component, or `nut`). Useful filters:
+- **Plot Over Line** - e.g. from (0.070001, 0.000001, 0.0005) to
+  (0.077499, 0.000001, 0.0005) is `seg1`, the narrow gap (all sampled lines
+  are listed in `unit_cell/system/functions`);
+- **Slice** with normal (0,0,1) at z = 0.0005 gives a clean 2D view (the
+  mesh is one cell thick in z);
+- **Surface With Edges** representation shows the mesh itself.
+The temperature fields live in `thermal/` (last time step, e.g. 100); the
+velocity there is the frozen flow copied from `unit_cell`.
+
+## Mesh-refinement study (`mesh_study.py`)
+
+Reviewers expect evidence that the results do not depend on the mesh.
+Three meshes, each 2x finer in both directions with the same wall grading:
+coarse 30x20 (1 200 cells), medium 60x40 (4 800, the production mesh),
+fine 120x80 (19 200).
+
+```bash
+cd ~/ENYGF/cfd/openfoam
+python3 mesh_study.py setup        # creates mesh_study/coarse and mesh_study/fine
+./mesh_study/Allrun                # flow + thermal on both (roughly 1-3 h)
+python3 mesh_study.py report       # table + Grid Convergence Index -> mesh_study/mesh_study.csv
+```
+
+The report gives, for every quantity (pressure gradient, friction velocity,
+gap wall shear, 8 Nusselt numbers), the value on each mesh, the observed
+order of convergence, the Richardson-extrapolated value and the GCI
+(Celik et al. 2008) - the numerical uncertainty of the production results.
+
 ## Sampled lines (`case_geometry.py`)
 
 `seg1` -> `seg2` -> `seg3` together trace the DNS's unit-cell-boundary

@@ -8,9 +8,8 @@ rho*cp = 1):
 A fixed random fraction of the cells is held out of training to measure the
 PINN's error on points it has never seen.
 
-Validation data: points digitized from the 2023 DNS paper's figures
-(digitized_data/dns_*.csv). These are deliberately NOT used for training -
-they are the independent check.
+Validation data (digitized DNS figures) is read by validation.py and is
+deliberately never used for training.
 """
 from pathlib import Path
 
@@ -20,12 +19,6 @@ import torch
 
 BC_CODE = {"isoT": 0.0, "isoFlux": 1.0}
 
-DNS_FILES = {
-    "fig6_wall_shear": "dns_fig6_wall_shear.csv",
-    "fig7_velocity_wall_units": "dns_fig7_velocity_wall_units.csv",
-    "fig11a_wall_heat_flux_isoT": "dns_fig11a_wall_heat_flux_isoT.csv",
-    "fig12a_temperature_isoT": "dns_fig12a_temperature_isoT.csv",
-}
 
 
 def load_cfd_profiles(path, device, lines=None):
@@ -106,16 +99,4 @@ def temperature_scales(df, pr_values):
             g = t[np.isclose(t["Pr"], pr) & (t["bc"] == bc)]["value"]
             if len(g) >= 2:
                 out[i, j] = max(float(g.max() - g.min()), 1e-12)
-    return out
-
-
-def load_dns_digitized(digitized_dir):
-    """Returns {name: DataFrame(case_id, x, y)} for every non-empty DNS file present."""
-    out = {}
-    for name, fname in DNS_FILES.items():
-        p = Path(digitized_dir) / fname
-        if p.exists():
-            df = pd.read_csv(p)
-            if not df.empty:
-                out[name] = df
     return out

@@ -195,7 +195,12 @@ def wall_temperature_data(model, re_value, pr, bc, angles_rad, device):
 
 @torch.no_grad()
 def bulk_temperature(model, re_value, pr, bc, n, device):
-    x, y = sample_interior(model, n, device)
+    # Fixed sample points (own random stream), so a given model always gives
+    # the same bulk temperature and Nusselt number, and training's random
+    # state is left untouched.
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(12345)
+        x, y = sample_interior(model, n, device)
     re = torch.full_like(x, re_value)
     w, _, _ = model.momentum(x, y, re)
     T = model.temperature(x, y, re, torch.full_like(x, pr), torch.full_like(x, bc))

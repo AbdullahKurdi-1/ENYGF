@@ -282,6 +282,11 @@ def export_field(unit_cell: Path, thermal: Path, field_csv: Path, nusselt_csv: P
         for pr, bc, nu_cfd, bal in nusselt:
             note = f"   (heat balance error {bal:+.1e})" if bc == "isoT" else ""
             print(f"    Pr={pr:<6g}{bc:8s} Nu = {nu_cfd:7.2f}{note}")
+    y_plus = wall_dist * np.sqrt(tau_w) / NU
+    print(f"[field] first-cell centre y+ at the rod: max {y_plus.max():.2f}, mean {y_plus.mean():.2f}")
+    return {"G": G, "u_tau": float(np.sqrt(G * area.sum() / length.sum())), "y_plus_max": float(y_plus.max()),
+            "tau_gap_over_mean": float(tau_w[gap_face] / (tau_w * length).sum() * length.sum()),
+            "n_cells": n, "nusselt": nusselt}
 
 
 def export_lines(unit_cell: Path, thermal: Path, out_csv: Path):

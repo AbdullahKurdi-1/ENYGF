@@ -195,38 +195,62 @@ def energy_budget(model, cfg, out=None):
 
 def sensor_importance(results, reference="lines PINN", out=None):
     """How much the errors grow when one measurement line is removed from the
-    lines-only PINN. results: the list/DataFrame from experiments.run_all."""
+    lines-only PINN, as a multiple of the error with all lines - computed per
+    seed against the reference run with the same seed, then averaged (the
+    range over seeds is shown). results: list/DataFrame of experiment results."""
+    import re
     df = pd.DataFrame(results).set_index("run")
-    base = df.loc[reference]
+
+    def seed_of(run):
+        m = re.search(r"\(seed (\d+)\)$", run)
+        return int(m.group(1)) if m else 0
+
+    refs = {seed_of(r): df.loc[r] for r in df.index if re.fullmatch(re.escape(reference) + r"( \(seed \d+\))?", r)}
     rows = []
     for run in df.index:
-        if run.startswith(f"{reference} without "):
-            line = run.split(" without ")[1]
-            rows.append({"removed line": line,
-                         "velocity error x": df.loc[run, "test_err_w"] / base["test_err_w"],
-                         "temperature error x": df.loc[run, "test_err_T"] / base["test_err_T"],
-                         "worst Nu error (%)": 100 * df.loc[run, "Nu_err_max_Pr<=2"]})
-    table = pd.DataFrame(rows)
-    if not table.empty:
-        order = {name: i for i, name in enumerate(["seg1", "seg2", "seg3", "line15"])}
-        table = table.sort_values("removed line", key=lambda c: c.map(order)).reset_index(drop=True)
-    print(f"Reference ({reference}, all 4 lines): velocity error {base['test_err_w']:.1%}, temperature error "
-          f"{base['test_err_T']:.1%}, worst Nu error {base['Nu_err_max_Pr<=2']:.1%}")
-    print("Error when one line is removed, as a multiple of the reference (bigger = more important line):")
+        m = re.fullmatch(re.escape(reference) + r" without (\w+)( \(seed \d+\))?", run)
+        if not m or seed_of(run) not in refs:
+            continue
+        base = refs[seed_of(run)]
+        rows.append({"removed line": m.group(1), "seed": seed_of(run),
+                     "velocity": df.loc[run, "test_err_w"] / base["test_err_w"],
+                     "temperature": df.loc[run, "test_err_T"] / base["test_err_T"],
+                     "worst Nu error (%)": 100 * df.loc[run, "Nu_err_max_Pr<=2"],
+                     "Nu reference (%)": 100 * base["Nu_err_max_Pr<=2"]})
+    per_seed = pd.DataFrame(rows)
+    if per_seed.empty:
+        print("No sensor-importance runs found.")
+        return per_seed
+    order = {name: i for i, name in enumerate(["seg1", "seg2", "seg3", "line15"])}
+    g = per_seed.groupby("removed line")
+    table = pd.DataFrame({
+        "seeds": g.size(),
+        "velocity error x (mean)": g["velocity"].mean(), "velocity min": g["velocity"].min(),
+        "velocity max": g["velocity"].max(),
+        "temperature error x (mean)": g["temperature"].mean(), "temperature min": g["temperature"].min(),
+        "temperature max": g["temperature"].max(),
+        "worst Nu error % (mean)": g["worst Nu error (%)"].mean(),
+    }).reset_index()
+    table = table.sort_values("removed line", key=lambda c: c.map(order)).reset_index(drop=True)
+    print(f"Reference ({reference}, all 4 lines), mean over {len(refs)} seed(s): worst Nu error "
+          f"{np.mean([r['Nu_err_max_Pr<=2'] for r in refs.values()]):.1%}")
+    print("Error when one line is removed, as a multiple of the error with all lines (> 1 = the line matters):")
     print(table.to_string(index=False, float_format=lambda v: f"{v:.2f}"))
-    if not table.empty:
-        fig, ax = plt.subplots(figsize=(6, 3.2))
-        xs = np.arange(len(table))
-        ax.bar(xs - 0.2, table["velocity error x"], 0.4, label="velocity")
-        ax.bar(xs + 0.2, table["temperature error x"], 0.4, label="temperature")
-        ax.axhline(1, color="k", lw=0.8)
-        ax.set_xticks(xs, [f"without {l}" for l in table["removed line"]])
-        ax.set_ylabel("error / error with all lines")
-        ax.set_title("Sensor importance: which measurement line matters most")
-        ax.legend()
-        fig.tight_layout()
-        if out:
-            fig.savefig(out, dpi=130)
-        plt.show()
-        plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(6.5, 3.4))
+    xs = np.arange(len(table))
+    for off, key, lab in ((-0.2, "velocity", "velocity"), (0.2, "temperature", "temperature")):
+        mean = table[f"{key} error x (mean)"]
+        err = [mean - table[f"{key} min"], table[f"{key} max"] - mean]
+        ax.bar(xs + off, mean, 0.4, yerr=err, capsize=3, label=lab)
+    ax.axhline(1, color="k", lw=0.8)
+    ax.set_xticks(xs, [f"without {l}" for l in table["removed line"]])
+    ax.set_ylabel("error / error with all lines")
+    ax.set_title(f"Sensor importance ({int(table['seeds'].max())} seed(s); bars = range)")
+    ax.legend()
+    fig.tight_layout()
+    if out:
+        fig.savefig(out, dpi=130)
+    plt.show()
+    plt.close(fig)
     return table
