@@ -96,9 +96,10 @@ pipeline on fake data.
 
 State these in any write-up:
 
-- Unit cell with symmetry planes, not the DNS's confined six-rod domain
-  (its central unit cell is geometrically identical; outer-wall influence
-  is left out).
+- Infinite-array unit cell with symmetry planes, not the DNS's confined
+  six-rod Hooper domain, where three of each subchannel's four gaps are
+  closed by walls (`docs/figures/domain_comparison.png`). Only the open-gap
+  side (|theta| <= 45 deg) is compared.
 - Steady RANS training data: no gap vortex street / flow pulsations (the DNS
   measures 3.7 Hz, St = 0.52 - unreachable by construction). Validation
   claims are about mean quantities only.

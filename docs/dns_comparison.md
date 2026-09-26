@@ -124,11 +124,26 @@ k+ at subchannel centre 1.22 / 1.00; Theta/Theta_b at gap centre
      0.55 U_b), and possibly from the DNS computing Theta_b over its whole
      domain. Conclusion: with Pr_t = 0.9 the thermal-closure error and the
      velocity-field error partly cancel in Nu.
-5. **Friction velocity 6% low** (0.0598 vs 0.0637; extrapolated to zero mesh
+5. **Different domain (a reviewer will ask).** The DNS reproduces the
+   Hooper experiment: six rods, two subchannels, and only the gap between
+   the subchannels open - the others are closed by gap walls
+   (`docs/figures/domain_comparison.png`). Our CFD is an infinite array
+   with every gap open. Evidence that this is *not* what causes the gap
+   deficit: the 2018 URANS used the complete Hooper cross-section with the
+   side walls and the same k-omega SST model, and still got about 0.55 U_b
+   at the gap centre (read from its Fig. 11) - the same as ours - even though
+   in that unsteady run the flow pulsations did appear. What the geometry
+   does affect: the DNS side of each subchannel next to the gap walls is
+   slower (extra no-slip wall), which is why the comparison stops at
+   |theta| = 45 deg; the DNS's hydraulic diameter (0.0712 m, includes the gap
+   walls) and its domain-wide bulk velocity and temperature, which enter
+   u_tau, Theta_b and Nu. The size of these effects on the |theta| <= 45 deg
+   quantities has not been computed; a steady RANS of the DNS domain (a
+   quarter of it, with its gap walls) would measure it.
+6. **Friction velocity 6% low** (0.0598 vs 0.0637; extrapolated to zero mesh
    size 0.0613, -4%). The remainder is consistent with the redistributed
-   wall shear (point 1) and with the DNS's side walls, which a periodic unit
-   cell does not have.
-6. **Near-wall k peak at 45 deg about half the DNS value.** A known k-omega
+   wall shear (point 1) and with the DNS's gap walls (point 5).
+7. **Near-wall k peak at 45 deg about half the DNS value.** A known k-omega
    SST trait (it under-predicts the near-wall TKE peak); the mean velocity
    there is still right (U+ matches the log law within 4-5%).
 

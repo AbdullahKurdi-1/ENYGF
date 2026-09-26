@@ -13,8 +13,13 @@ checks done with the earlier viscosity, nu = 8.0099e-6).
 The **quarter unit cell** of an infinite square rod array (P/D = 1.107,
 D = 0.14 m): rod at the origin, cell spanning 0..a in x and y (a = P/2),
 symmetry planes on all four sides, one cell thick and periodic in the
-streamwise direction z. This is the same "effective unit cell" the 2023 DNS
-averages its statistics over, and the one its figures are plotted on.
+streamwise direction z. It is **not** the Hooper / DNS domain (six rods, two
+subchannels, outer gaps closed by straight gap walls - see
+`docs/figures/domain_comparison.png`, made by `plot_domains.py`): our cell
+is the part of that domain next to its one open gap, with symmetry planes
+where the DNS has a gap wall (top side) or more fluid. The DNS figures used
+for validation are on the open-gap side (|theta| <= 45 deg), which is why
+the comparison is restricted to it.
 
 Normalisation follows the 2023 DNS: U_b = 1 m/s, rho = 1, rho*cp = 1, and
 its Reynolds-number definition Re_h = U_b*Dh/nu = 9800 with its Dh = 0.0712 m,
@@ -138,9 +143,12 @@ rod at 45°); `line15` is the 15° wall-normal line of DNS Fig. 7.
 ## Disclosed simplifications
 
 - Infinite-array unit cell with symmetry planes, not the DNS's confined
-  six-rod domain with gap walls. The central unit cell of that domain is
-  geometrically identical to ours; the difference is the influence of the
-  outer walls.
+  six-rod (Hooper) domain. Same rod size and pitch, and the same shape
+  between the open gap and the subchannel centre; but in the DNS each
+  subchannel has only one open gap - the other three are closed by no-slip,
+  adiabatic gap walls - so the DNS flow near theta = 90 deg, its hydraulic
+  diameter (0.0712 vs 0.0785 m) and its domain-wide bulk temperature differ
+  from an infinite array. Comparisons use |theta| <= 45 deg only.
 - Steady RANS: no gap vortex street / flow pulsations (no time axis; the
   symmetry planes also suppress the antisymmetric gap oscillation). The DNS
   pulsation frequency (3.7 Hz, St = 0.52) is out of reach by construction.

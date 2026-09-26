@@ -57,7 +57,8 @@ is a far better reference. See `dns_2023_reference.md`.
 The OpenFOAM case models the quarter unit cell of an infinite square array
 with symmetry planes - the same simplification this paper notes other authors
 used for reduced-domain URANS (Cardoso de Souza et al. 2015; Chandra et al.
-2010), and which it warns is not sufficient for LES/DNS-grade fidelity. It is
-also exactly the "effective unit cell" over which the 2023 DNS averages its
-statistics. Case normalisation (U_b = 1, nu = Dh/Re) follows the 2023 DNS;
+2010), and which it warns is not sufficient for LES/DNS-grade fidelity. It
+matches the open-gap half of the 2023 DNS's "effective unit cell" but not its
+gap walls (correction 26 Sep 2026: earlier called "exactly" the same; see
+`dns_2023_reference.md` and `docs/figures/domain_comparison.png`). Case normalisation (U_b = 1, nu = Dh/Re) follows the 2023 DNS;
 see `cfd/openfoam/README.md`.

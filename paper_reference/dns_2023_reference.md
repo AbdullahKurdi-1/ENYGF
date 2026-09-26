@@ -34,7 +34,7 @@ be made available on request."** No public download. Same situation as the
 | Strouhal number (St = fD/Ub) | 0.52 | cf. Lai et al. (2019) at higher Re: St=0.56 |
 | Strouhal number (St_tau^-1, gap-width based) | 0.12 | cf. Möller's correlation: 0.14 |
 
-## Geometry: confirms this project's disclosed simplification, doesn't change it
+## Geometry: not the same domain as ours (see correction below)
 
 This paper's actual DNS domain is the **real confined two-subchannel
 geometry with straight gap walls** (Fig. 1) - not an idealized infinite
@@ -44,11 +44,19 @@ because "the presence of gap walls and the resulting asymmetry" breaks
 that symmetry; they instead average over a folded one-quarter "effective
 unit cell" specific to their bounded domain.
 
-The effective unit cell the DNS averages over is one quarter of a
-subchannel - geometrically the same as this project's quarter unit cell
-(`cfd/openfoam/unit_cell`). So the DNS statistics are directly comparable
-with ours; the remaining difference is the influence of the DNS's outer gap
-walls on that central cell, which our symmetry planes leave out.
+**Correction (26 Sep 2026):** an earlier version of this note called the
+two cells geometrically the same. Read from Fig. 1a: six rods (3 x 2), two
+subchannels side by side; only the central gap between them is open, the
+other gaps are closed by short straight gap walls on the line through the
+rod centres. The effective unit cell (grey in Fig. 1a) is one quarter of
+the whole domain = half a subchannel: a quarter of a central rod and a
+quarter of a corner rod, half of the open gap, two half-gaps closed by
+walls. Our quarter cell (`cfd/openfoam/unit_cell`) corresponds to its
+central-rod half: identical shape from the open gap (theta = 0) to the
+subchannel centre, but where our cell has a symmetry plane on its 90-deg
+side the DNS has a gap wall. Hence the DNS values are comparable with ours
+on the open-gap side (|theta| <= 45 deg, the DNS's own averaging range) but
+not beyond it. Sketch: `docs/figures/domain_comparison.png`.
 
 ## The DNS set-up this project mirrors (Section 2)
 
